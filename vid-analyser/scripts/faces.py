@@ -1,15 +1,14 @@
-from __future__ import annotations
 
 from pathlib import Path
 
 import cv2
 import numpy as np
-
+import onnxruntime as ort
 
 # Put these two files in ./models/ (see earlier message for download links)
 PROTO = Path("models/deploy.prototxt")
 WEIGHTS = Path("models/res10_300x300_ssd_iter_140000.caffemodel")
-
+EMBEDDER_ONNX = Path("models/w600k_mbf.onnx")
 
 def extract_face_crops(
     video_path: Path,
@@ -118,17 +117,51 @@ def extract_face_crops(
 
     return saved
 
+def embed_face_crops(crop_paths: list[Path]) -> dict[Path, np.ndarray]:
+    if not EMBEDDER_ONNX.exists():
+        raise FileNotFoundError(
+            f"Missing embedder model: {EMBEDDER_ONNX}\n"
+            "Put your MobileFaceNet ONNX file at models/mobilefacenet.onnx"
+        )
 
-if __name__ == "__main__":
-    kt = "/home/neil/repos/eufy-client/local_files/20260204073042.mp4"
-    neno="/home/neil/repos/eufy-client/local_files/20260206203129.mp4"
-    crops = extract_face_crops(
-        video_path=Path(neno),
-        out_dir=Path("face_crops"),
-        sample_fps=15,
-        max_width=640,
-        conf_thresh=0.2,
-        min_face=80,
-        max_crops=10,
-    )
-    print(f"Saved {len(crops)} face crops")
+    # CPU-only ONNXRuntime session
+    session = ort.InferenceSession(str(EMBEDDER_ONNX), providers=["CPUExecutionProvider"])
+    input_meta = session.get_inputs()[0]
+    input_name = input_meta.name
+
+    # Try to infer expected input size (usually 112x112)
+    # Many exports are (1,3,112,112) but sometimes dynamic.
+    shape = input_meta.shape  # e.g. [1, 3, 112, 112] or [None, 3, 112, 112]
+    try:
+        in_h = int(shape[2])
+        in_w = int(shape[3])
+    except Exception:
+        in_h, in_w = 112, 112
+
+    out: dict[Path, np.ndarray] = {}
+
+    for p in crop_paths:
+        p = Path(p)
+        img = cv2.imread(str(p))
+        if img is None:
+            continue  # skip unreadable images
+
+        # Preprocess: BGR -> RGB, resize, float32, normalize.
+        # Common MobileFaceNet normalization is to roughly [-1, 1].
+        img = cv2.resize(img, (in_w, in_h), interpolation=cv2.INTER_AREA)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32)
+        img = (img - 127.5) / 128.0
+
+        x = np.transpose(img, (2, 0, 1))[None, ...]  # (1, 3, H, W)
+
+        # Run inference
+        y = session.run(None, {input_name: x})[0]
+        emb = np.asarray(y).reshape(-1).astype(np.float32)
+
+        # L2 normalize so dot-product == cosine similarity
+        norm = float(np.linalg.norm(emb)) + 1e-12
+        emb = emb / norm
+
+        out[p] = emb
+
+    return out

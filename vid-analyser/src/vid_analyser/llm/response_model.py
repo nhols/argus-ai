@@ -1,8 +1,10 @@
 from typing import Literal
+
 from pydantic import BaseModel
 
-ParkingSpotStatus =Literal["occupied", "vacant", "car entering", "car leaving", "unknown"]
+ParkingSpotStatus = Literal["occupied", "vacant", "car entering", "car leaving", "unknown"]
 IRMode = Literal["yes", "no", "unknown"]
+
 
 class AnalyzeResponse(BaseModel):
     ir_mode: IRMode
