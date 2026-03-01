@@ -70,6 +70,51 @@ def load_video_bytes(store: LocalStore, video_path: str) -> bytes | None:
         return None
 
 
+def build_case_comparison_rows(row: EvalCaseRow) -> list[dict[str, object]]:
+    golden = row.case_result.golden
+    prediction = row.case_result.prediction
+    scores = row.case_result.scores
+
+    return [
+        {
+            "field": "ir_mode",
+            "golden": golden.ir_mode,
+            "prediction": prediction.ir_mode if prediction is not None else None,
+            "score": scores.ir_mode if scores is not None else None,
+        },
+        {
+            "field": "parking_spot_status",
+            "golden": golden.parking_spot_status,
+            "prediction": prediction.parking_spot_status if prediction is not None else None,
+            "score": scores.parking_spot_status if scores is not None else None,
+        },
+        {
+            "field": "number_plate",
+            "golden": golden.number_plate,
+            "prediction": prediction.number_plate if prediction is not None else None,
+            "score": scores.number_plate if scores is not None else None,
+        },
+        {
+            "field": "send_notification",
+            "golden": golden.send_notification,
+            "prediction": prediction.send_notification if prediction is not None else None,
+            "score": scores.send_notification if scores is not None else None,
+        },
+        {
+            "field": "event_checklist",
+            "golden": "\n".join(golden.event_checklist),
+            "prediction": prediction.events_description if prediction is not None else None,
+            "score": scores.events_description if scores is not None else None,
+        },
+        {
+            "field": "people",
+            "golden": golden.people,
+            "prediction": None,
+            "score": scores.people_score if scores is not None else None,
+        },
+    ]
+
+
 def render_run_overview(runs: list[EvalRunRecord]) -> None:
     overview_rows: list[RunOverviewRow] = []
     for run in runs:
@@ -92,6 +137,8 @@ def render_case_table(rows: list[EvalCaseRow]) -> EvalCaseRow | None:
     display_rows = [
         row.model_dump(
             include={
+                "run_id",
+                "video_path",
                 "total_score",
                 "ir_mode_score",
                 "parking_spot_status_score",
@@ -130,26 +177,52 @@ def render_case_detail(store: LocalStore, row: EvalCaseRow) -> None:
         else:
             st.metric("Total score", "-")
 
-    video_col, golden_col, prediction_col, scores_col = st.columns(4)
+    video_col, details_col = st.columns([1, 3])
     with video_col:
         video_bytes = load_video_bytes(store, row.video_path)
         if video_bytes is None:
             st.warning("Video file not found for this case.")
         else:
             st.video(video_bytes, autoplay=True, loop=True)
-    with golden_col:
-        st.markdown("**Golden**")
-        st.json(row.case_result.golden.model_dump())
-    with prediction_col:
-        st.markdown("**Prediction**")
-        st.json(row.case_result.prediction.model_dump() if row.case_result.prediction is not None else None)
-    with scores_col:
+
+    with details_col:
+        st.markdown("**Case comparison**")
+        st.dataframe(
+            build_case_comparison_rows(row),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "score": st.column_config.ProgressColumn("Score", max_value=1.0, min_value=0.0, format="%.1f"),
+            },
+        )
+
         if row.case_result.error:
             st.error(row.case_result.error)
-        st.markdown("**Scores**")
-        st.json(row.case_result.scores.model_dump() if row.case_result.scores is not None else None)
-        st.markdown("Judge")
-        st.json(row.case_result.judge.model_dump() if row.case_result.judge is not None else None)
+
+        st.markdown("**Additional info**")
+        st.dataframe(
+            [
+                {"field": "video_hash", "value": row.video_hash},
+                {
+                    "field": "people_status",
+                    "value": row.case_result.scores.people_status if row.case_result.scores is not None else None,
+                },
+                {
+                    "field": "covered_items",
+                    "value": row.case_result.judge.covered_items if row.case_result.judge is not None else None,
+                },
+                {
+                    "field": "contradicted_items",
+                    "value": row.case_result.judge.contradicted_items if row.case_result.judge is not None else None,
+                },
+                {
+                    "field": "judge_rationale",
+                    "value": row.case_result.judge.rationale if row.case_result.judge is not None else None,
+                },
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
 
 
 def main() -> None:
