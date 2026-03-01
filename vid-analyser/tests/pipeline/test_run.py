@@ -22,7 +22,6 @@ class FakeProvider:
             parking_spot_status="unknown",
             number_plate=None,
             events_description="none",
-            message_for_user="ok",
             send_notification=False,
         )
 
@@ -39,7 +38,7 @@ class RunPipelineTests(IsolatedAsyncioTestCase):
             config=config,
         )
 
-        self.assertEqual(response.message_for_user, "ok")
+        self.assertEqual(response.events_description, "none")
         assert provider.last_request is not None
         self.assertEqual(provider.last_request.video_path, "input.mp4")
         self.assertEqual(provider.last_request.system_message, "system prompt")
@@ -85,7 +84,7 @@ class RunPipelineTests(IsolatedAsyncioTestCase):
                 config=config,
             )
 
-        self.assertEqual(response.message_for_user, "ok")
+        self.assertEqual(response.events_description, "none")
         assert provider.last_request is not None
         self.assertEqual(provider.last_request.system_message, "system prompt")
 

@@ -89,6 +89,23 @@ services:
       - n8n_data:/home/node/.n8n
       - ${DATA_FOLDER}/local_files:/files
 
+  vid-analyser-api:
+    build:
+      context: ./vid-analyser
+      dockerfile: Dockerfile.api
+    container_name: vid-analyser-api
+    restart: unless-stopped
+    logging:
+      driver: "local"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    environment:
+      - VID_ANALYSER_RUN_CONFIG_PATH=/app/config/run_config.json
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      - ./vid-analyser/config/run_config.json:/app/config/run_config.json:ro
+
 
 volumes:
   caddy_data:

@@ -4,6 +4,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation
 
 from vid_analyser.llm.base import LLMProvider, LlmVideoRequest
+from vid_analyser.llm.gemini import GeminiProvider
 from vid_analyser.llm.response_model import AnalyseResponse
 from vid_analyser.overlay import ZoneDefinition, overlay_zones, zone_descriptions
 from vid_analyser.person_id.identify import identify_people
@@ -20,12 +21,40 @@ class PersonIdConfig(BaseModel):
     pass
 
 
+class ProviderConfig(BaseModel):
+    kind: str = "gemini"
+    model: str
+
+
+class _RunConfigInput(BaseModel):
+    provider: ProviderConfig
+    overlay_zones: list[ZoneDefinition] = Field(default_factory=list)
+    enable_person_id: bool = False
+
+    def to_run_config(self) -> "RunConfig":
+        if self.provider.kind != "gemini":
+            raise ValueError(f"Unsupported analysis provider: {self.provider.kind}")
+        overlay = OverlayConfig(zones=self.overlay_zones) if self.overlay_zones else None
+        person_id = PersonIdConfig() if self.enable_person_id else None
+        return RunConfig(
+            provider=GeminiProvider(model=self.provider.model),
+            overlay=overlay,
+            person_id=person_id,
+        )
+
+
 class RunConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     provider: SkipValidation[LLMProvider]
     overlay: OverlayConfig | None = None
     person_id: PersonIdConfig | None = None
+
+    @classmethod
+    def from_json_path(cls, path: str | Path) -> "RunConfig":
+        raw_json = Path(path).read_text(encoding="utf-8")
+        raw = _RunConfigInput.model_validate_json(raw_json)
+        return raw.to_run_config()
 
 
 def _build_enriched_system_prompt(

@@ -1,3 +1,3 @@
-from vid_analyser.pipeline.run import OverlayConfig, PersonIdConfig, RunConfig, run
+from vid_analyser.pipeline.run import OverlayConfig, PersonIdConfig, ProviderConfig, RunConfig, run
 
-__all__ = ["OverlayConfig", "PersonIdConfig", "RunConfig", "run"]
+__all__ = ["OverlayConfig", "PersonIdConfig", "ProviderConfig", "RunConfig", "run"]
