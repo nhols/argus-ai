@@ -85,9 +85,11 @@ async def run(
     system_prompt: str,
     config: RunConfig,
 ) -> AnalyseResponse:
-    effective_video_path = Path(video_path)
+    original_video_path = Path(video_path)
+    effective_video_path = original_video_path
     overlay_summary: str | None = None
     person_id_summary: str | None = None
+    cleanup_paths: list[Path] = []
 
     logger.info(
         "Pipeline run started video_path=%s overlay_enabled=%s person_id_enabled=%s",
@@ -99,6 +101,8 @@ async def run(
     if config.overlay is not None and config.overlay.zones:
         logger.info("Applying overlay zones count=%s", len(config.overlay.zones))
         effective_video_path = overlay_zones(effective_video_path, config.overlay.zones)
+        if effective_video_path != original_video_path:
+            cleanup_paths.append(effective_video_path)
         overlay_summary = zone_descriptions(config.overlay.zones)
 
     if config.person_id is not None:
@@ -121,4 +125,9 @@ async def run(
         system_message=enriched_system_prompt,
     )
     logger.info("Dispatching pipeline request to provider=%s", config.provider.name)
-    return await config.provider.analyze_video(request)
+    try:
+        return await config.provider.analyze_video(request)
+    finally:
+        for cleanup_path in cleanup_paths:
+            cleanup_path.unlink(missing_ok=True)
+            logger.info("Deleted derived pipeline artifact %s", cleanup_path)

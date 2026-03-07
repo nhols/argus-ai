@@ -8,7 +8,6 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from starlette.datastructures import UploadFile
-
 from vid_analyser.pipeline import RunConfig, run
 
 logger = logging.getLogger(__name__)
@@ -50,12 +49,7 @@ async def analyse_video(
 ):
     logger.info("Received analyse-video request from %s", request.client.host if request.client else "unknown")
     form = await request.form(max_part_size=MAX_PART_SIZE_BYTES)
-    video = (
-        form.get("video")
-        or form.get("file")
-        or form.get("binary")
-        or form.get("data")
-    )
+    video = form.get("video")
     user_prompt = form.get("user_prompt")
     system_prompt = form.get("system_prompt")
 
@@ -65,8 +59,7 @@ async def analyse_video(
         raise HTTPException(
             status_code=400,
             detail=(
-                "Missing or invalid video upload. Send the binary file field as "
-                "'video', 'file', 'binary', or 'data'."
+                "Missing or invalid video upload. Send the binary file field as 'video', 'file', 'binary', or 'data'."
             ),
         )
     if not isinstance(user_prompt, str) or not isinstance(system_prompt, str):
