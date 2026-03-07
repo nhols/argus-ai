@@ -1,4 +1,5 @@
 import logging
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -30,10 +31,21 @@ class GeminiProvider(LLMProvider):
         load_dotenv()
         self._client = genai.Client()
         self._model = model
+        logger.info("Initialized GeminiProvider model=%s", self._model)
 
     async def analyze_video(self, req: LlmVideoRequest) -> AnalyseResponse:
         video_bytes = Path(req.video_path).read_bytes()
+        start = time.perf_counter()
+        logger.info(
+            "Sending video to Gemini model=%s size_bytes=%s user_prompt_len=%s system_prompt_len=%s",
+            self._model,
+            len(video_bytes),
+            len(req.user_message),
+            len(req.system_message),
+        )
         response = await self._generate_content_once(req=req, video_bytes=video_bytes)
+        duration_ms = (time.perf_counter() - start) * 1000
+        logger.info("Received Gemini response model=%s duration_ms=%.2f", self._model, duration_ms)
         return AnalyseResponse.model_validate(response.parsed)
 
     @retry(

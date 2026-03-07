@@ -89,12 +89,21 @@ async def run(
     overlay_summary: str | None = None
     person_id_summary: str | None = None
 
+    logger.info(
+        "Pipeline run started video_path=%s overlay_enabled=%s person_id_enabled=%s",
+        effective_video_path,
+        bool(config.overlay is not None and config.overlay.zones),
+        config.person_id is not None,
+    )
+
     if config.overlay is not None and config.overlay.zones:
+        logger.info("Applying overlay zones count=%s", len(config.overlay.zones))
         effective_video_path = overlay_zones(effective_video_path, config.overlay.zones)
         overlay_summary = zone_descriptions(config.overlay.zones)
 
     if config.person_id is not None:
         try:
+            logger.info("Running person identification")
             people = identify_people(effective_video_path)
             person_id_summary = _format_people_summary(people)
         except Exception as exc:
@@ -111,4 +120,5 @@ async def run(
         user_message=user_prompt,
         system_message=enriched_system_prompt,
     )
+    logger.info("Dispatching pipeline request to provider=%s", config.provider.name)
     return await config.provider.analyze_video(request)

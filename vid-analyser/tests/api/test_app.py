@@ -1,4 +1,5 @@
 import importlib
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -123,3 +124,18 @@ def test_analyse_video_rejects_empty_upload(tmp_path: Path, monkeypatch: MonkeyP
     assert response.status_code == 400
     assert response.json() == {"detail": "Uploaded video is empty"}
     mocked_run.assert_not_awaited()
+
+
+def test_configure_logging_adds_root_handler(monkeypatch: MonkeyPatch) -> None:
+    root_logger = logging.getLogger()
+    original_handlers = list(root_logger.handlers)
+    original_level = root_logger.level
+    try:
+        root_logger.handlers = []
+        root_logger.setLevel(logging.NOTSET)
+        api_module.configure_logging()
+        assert root_logger.handlers
+        assert root_logger.level == logging.INFO
+    finally:
+        root_logger.handlers = original_handlers
+        root_logger.setLevel(original_level)
