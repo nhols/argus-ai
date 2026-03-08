@@ -1,4 +1,5 @@
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
 
@@ -116,3 +117,29 @@ class RunPipelineTests(IsolatedAsyncioTestCase):
         self.assertEqual(provider.last_request.video_path, "input_zones.mp4")
         self.assertIn("Overlay: Footpath (color: RED)", provider.last_request.system_message)
         self.assertIn("Person IDs: Alice (0.91)", provider.last_request.system_message)
+
+    async def test_overlay_artifact_is_deleted_after_run(self) -> None:
+        provider = FakeProvider()
+        zones = [ZoneDefinition(label="Driveway", polygon=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)])]
+        config = RunConfig(
+            provider=provider,
+            overlay=OverlayConfig(zones=zones),
+            person_id=None,
+        )
+
+        with TemporaryDirectory() as tmp_dir:
+            overlay_path = Path(tmp_dir) / "input_zones.mp4"
+            overlay_path.write_bytes(b"overlay")
+
+            with (
+                patch("vid_analyser.pipeline.run.overlay_zones", return_value=overlay_path),
+                patch("vid_analyser.pipeline.run.zone_descriptions", return_value="Driveway (color: RED)"),
+            ):
+                await run(
+                    video_path=Path(tmp_dir) / "input.mp4",
+                    user_prompt="user prompt",
+                    system_prompt="system prompt",
+                    config=config,
+                )
+
+            self.assertFalse(overlay_path.exists())
