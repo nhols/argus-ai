@@ -104,7 +104,7 @@ services:
       - VID_ANALYSER_RUN_CONFIG_PATH=/app/config/run_config.json
       - GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
-      - ./vid-analyser/config/run_config.json:/app/config/run_config.json:ro
+      - ./vid-analyser/config:/app/config:ro
 
 
 volumes:
