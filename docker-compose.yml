@@ -85,9 +85,8 @@ services:
       - NODE_ENV=production
       - WEBHOOK_URL=https://${SUBDOMAIN}.${DOMAIN_NAME}/
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
-      - N8N_AVAILABLE_BINARY_DATA_MODES=filesystem
       - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
-      - N8N_BINARY_DATA_STORAGE_PATH=/files/n8n-binary-data
+      - N8N_STORAGE_PATH=/files/n8n-binary-data
     volumes:
       - n8n_data:/home/node/.n8n
       - ${DATA_FOLDER}/local_files:/files
