@@ -5,7 +5,7 @@ import tempfile
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
@@ -13,7 +13,9 @@ from vid_analyser.pipeline import RunConfig, run
 
 logger = logging.getLogger(__name__)
 
-RUN_CONFIG_ENV_VAR = "VID_ANALYSER_RUN_CONFIG_PATH"
+CONFIG_S3_BUCKET_ENV_VAR = "VID_ANALYSER_CONFIG_S3_BUCKET"
+CONFIG_S3_KEY_ENV_VAR = "VID_ANALYSER_CONFIG_S3_KEY"
+DEFAULT_CONFIG_S3_KEY = "config/run_config.json"
 DEFAULT_USER_PROMPT = "Analyse this doorbell video and return the required JSON response."
 DEFAULT_SYSTEM_PROMPT = (
     "You are analysing footage from a fixed residential video doorbell camera. "
@@ -31,6 +33,16 @@ class AnalyseVideoMetadata(BaseModel):
     end_time: str | None = None
 
 
+def _load_run_config_from_s3(bucket: str, key: str) -> RunConfig:
+    import boto3
+
+    logger.info("Loading run config from s3://%s/%s", bucket, key)
+    s3 = boto3.client("s3")
+    response = s3.get_object(Bucket=bucket, Key=key)
+    body = response["Body"].read().decode("utf-8")
+    return RunConfig.from_json_text(body)
+
+
 def configure_logging() -> None:
     root_logger = logging.getLogger()
     if root_logger.handlers:
@@ -43,12 +55,14 @@ def configure_logging() -> None:
     )
 
 
-def _build_user_prompt(metadata: AnalyseVideoMetadata) -> str:
+def _build_user_prompt(metadata: AnalyseVideoMetadata, *, base_prompt: str) -> str:
     metadata_dict = metadata.model_dump(exclude_none=True)
-    if not metadata_dict:
-        return DEFAULT_USER_PROMPT
 
-    lines = [DEFAULT_USER_PROMPT, "", "Event metadata:"]
+    lines = [base_prompt]
+    if not metadata_dict:
+        return base_prompt
+
+    lines.extend(["", "Event metadata:"])
     for key, value in metadata_dict.items():
         lines.append(f"- {key}: {value}")
     return "\n".join(lines)
@@ -57,13 +71,13 @@ def _build_user_prompt(metadata: AnalyseVideoMetadata) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
-    config_path = os.getenv(RUN_CONFIG_ENV_VAR)
-    if not config_path:
-        raise RuntimeError(f"{RUN_CONFIG_ENV_VAR} is not set")
+    bucket = os.getenv(CONFIG_S3_BUCKET_ENV_VAR)
+    if not bucket:
+        raise RuntimeError(f"{CONFIG_S3_BUCKET_ENV_VAR} is not set")
 
-    app.state.run_config = RunConfig.from_json_path(config_path)
-    app.state.system_prompt = DEFAULT_SYSTEM_PROMPT
-    logger.info("Loaded run config from %s", config_path)
+    key = os.getenv(CONFIG_S3_KEY_ENV_VAR, DEFAULT_CONFIG_S3_KEY)
+    app.state.run_config = _load_run_config_from_s3(bucket, key)
+    logger.info("Loaded run config from s3://%s/%s", bucket, key)
     yield
 
 
@@ -93,8 +107,10 @@ async def analyse_video(
 
     video_bytes = await video.read()
     file_size = len(video_bytes)
-    user_prompt = _build_user_prompt(metadata)
-    system_prompt = app.state.system_prompt
+    configured_user_prompt = app.state.run_config.user_prompt or DEFAULT_USER_PROMPT
+    configured_system_prompt = app.state.run_config.system_prompt or DEFAULT_SYSTEM_PROMPT
+    user_prompt = _build_user_prompt(metadata, base_prompt=configured_user_prompt)
+    system_prompt = configured_system_prompt
     logger.info(
         "Parsed upload filename=%s content_type=%s size_bytes=%s metadata_keys=%s prompt_lengths user=%s system=%s",
         video.filename,

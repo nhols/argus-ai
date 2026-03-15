@@ -30,6 +30,8 @@ class _RunConfigInput(BaseModel):
     provider: ProviderConfig
     overlay_zones: list[ZoneDefinition] = Field(default_factory=list)
     enable_person_id: bool = False
+    system_prompt: str | None = None
+    user_prompt: str | None = None
 
     def to_run_config(self) -> "RunConfig":
         if self.provider.kind != "gemini":
@@ -40,6 +42,8 @@ class _RunConfigInput(BaseModel):
             provider=GeminiProvider(model=self.provider.model),
             overlay=overlay,
             person_id=person_id,
+            system_prompt=self.system_prompt,
+            user_prompt=self.user_prompt,
         )
 
 
@@ -49,10 +53,16 @@ class RunConfig(BaseModel):
     provider: SkipValidation[LLMProvider]
     overlay: OverlayConfig | None = None
     person_id: PersonIdConfig | None = None
+    system_prompt: str | None = None
+    user_prompt: str | None = None
 
     @classmethod
     def from_json_path(cls, path: str | Path) -> "RunConfig":
         raw_json = Path(path).read_text(encoding="utf-8")
+        return cls.from_json_text(raw_json)
+
+    @classmethod
+    def from_json_text(cls, raw_json: str) -> "RunConfig":
         raw = _RunConfigInput.model_validate_json(raw_json)
         return raw.to_run_config()
 

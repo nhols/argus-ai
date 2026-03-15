@@ -1,4 +1,5 @@
 import importlib
+import json
 import logging
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -10,7 +11,8 @@ from vid_analyser.llm.response_model import AnalyseResponse
 from vid_analyser.pipeline import RunConfig
 
 api_module = importlib.import_module("vid_analyser.api.app")
-RUN_CONFIG_ENV_VAR = api_module.RUN_CONFIG_ENV_VAR
+CONFIG_S3_BUCKET_ENV_VAR = api_module.CONFIG_S3_BUCKET_ENV_VAR
+CONFIG_S3_KEY_ENV_VAR = api_module.CONFIG_S3_KEY_ENV_VAR
 app = api_module.app
 
 
@@ -32,6 +34,24 @@ def _write_config(tmp_path: Path, *, provider_kind: str = "gemini") -> Path:
     return config_path
 
 
+def _config_json(
+    *,
+    provider_kind: str = "gemini",
+    system_prompt: str | None = None,
+    user_prompt: str | None = None,
+) -> str:
+    body = {
+        "provider": {"kind": provider_kind, "model": "gemini-3-flash-preview"},
+        "overlay_zones": [],
+        "enable_person_id": False,
+    }
+    if system_prompt is not None:
+        body["system_prompt"] = system_prompt
+    if user_prompt is not None:
+        body["user_prompt"] = user_prompt
+    return json.dumps(body)
+
+
 def test_run_config_from_json_path(tmp_path: Path) -> None:
     config = RunConfig.from_json_path(_write_config(tmp_path))
 
@@ -47,9 +67,25 @@ def test_run_config_from_json_path_rejects_invalid_provider(tmp_path: Path) -> N
         RunConfig.from_json_path(config_path)
 
 
+def test_run_config_from_json_text_includes_optional_prompts() -> None:
+    config = RunConfig.from_json_text(
+        _config_json(system_prompt="system from s3", user_prompt="user from s3")
+    )
+
+    assert config.system_prompt == "system from s3"
+    assert config.user_prompt == "user from s3"
+
+
 def test_analyse_video_calls_run_and_cleans_up(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
-    config_path = _write_config(tmp_path)
-    monkeypatch.setenv(RUN_CONFIG_ENV_VAR, str(config_path))
+    monkeypatch.setenv(CONFIG_S3_BUCKET_ENV_VAR, "test-bucket")
+    monkeypatch.setenv(CONFIG_S3_KEY_ENV_VAR, "config/run_config.json")
+    monkeypatch.setattr(
+        api_module,
+        "_load_run_config_from_s3",
+        lambda bucket, key: RunConfig.from_json_text(
+            _config_json(system_prompt="system from s3", user_prompt="user from s3")
+        ),
+    )
 
     response_model = AnalyseResponse(
         ir_mode="unknown",
@@ -81,19 +117,19 @@ def test_analyse_video_calls_run_and_cleans_up(tmp_path: Path, monkeypatch: Monk
     assert response.status_code == 200
     assert response.json() == response_model.model_dump(mode="json")
     assert captured["user_prompt"] == (
-        "Analyse this doorbell video and return the required JSON response.\n\n"
+        "user from s3\n\n"
         "Event metadata:\n"
         "- storage_path: abc\n"
         "- start_time: 2026-03-15T10:00:00Z"
     )
-    assert captured["system_prompt"] == api_module.DEFAULT_SYSTEM_PROMPT
+    assert captured["system_prompt"] == "system from s3"
     assert isinstance(captured["config"], RunConfig)
     assert not Path(captured["video_path"]).exists()
 
 
 def test_analyse_video_cleans_up_temp_file_on_failure(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
-    config_path = _write_config(tmp_path)
-    monkeypatch.setenv(RUN_CONFIG_ENV_VAR, str(config_path))
+    monkeypatch.setenv(CONFIG_S3_BUCKET_ENV_VAR, "test-bucket")
+    monkeypatch.setattr(api_module, "_load_run_config_from_s3", lambda bucket, key: RunConfig.from_json_text(_config_json()))
     captured: dict[str, object] = {}
 
     async def fake_run(video_path: str | Path, user_prompt: str, system_prompt: str, config: RunConfig):
@@ -115,8 +151,8 @@ def test_analyse_video_cleans_up_temp_file_on_failure(tmp_path: Path, monkeypatc
 
 
 def test_analyse_video_rejects_empty_upload(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
-    config_path = _write_config(tmp_path)
-    monkeypatch.setenv(RUN_CONFIG_ENV_VAR, str(config_path))
+    monkeypatch.setenv(CONFIG_S3_BUCKET_ENV_VAR, "test-bucket")
+    monkeypatch.setattr(api_module, "_load_run_config_from_s3", lambda bucket, key: RunConfig.from_json_text(_config_json()))
     mocked_run = AsyncMock()
     monkeypatch.setattr(api_module, "run", mocked_run)
 
@@ -133,8 +169,8 @@ def test_analyse_video_rejects_empty_upload(tmp_path: Path, monkeypatch: MonkeyP
 
 
 def test_analyse_video_accepts_request_without_metadata(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
-    config_path = _write_config(tmp_path)
-    monkeypatch.setenv(RUN_CONFIG_ENV_VAR, str(config_path))
+    monkeypatch.setenv(CONFIG_S3_BUCKET_ENV_VAR, "test-bucket")
+    monkeypatch.setattr(api_module, "_load_run_config_from_s3", lambda bucket, key: RunConfig.from_json_text(_config_json()))
     response_model = AnalyseResponse(
         ir_mode="unknown",
         parking_spot_status="unknown",
