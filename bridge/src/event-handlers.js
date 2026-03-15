@@ -10,7 +10,7 @@ import { DOORBELL_SN, HOMEBASE_SN, CONNECT_TIMEOUT_MS } from './config.js';
  * @param {import('./query-poller.js').QueryPoller}       deps.queryPoller
  * @param {import('./download-manager.js').DownloadManager} deps.downloadManager
  * @param {import('./captcha-server.js').CaptchaServer}   deps.captchaServer
- * @param {Set<string>}     deps.sentEvents   – storage_paths already sent to n8n
+ * @param {Set<string>}     deps.sentEvents   – storage_paths already sent upstream
  */
 export function createMessageHandler({ queryPoller, downloadManager, captchaServer, sentEvents }) {
   let connectTimeout = null;

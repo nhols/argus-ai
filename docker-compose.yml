@@ -1,7 +1,6 @@
 services:
   eufy-ws:
     build: ./eufy-ws
-    container_name: eufy-ws
     restart: unless-stopped
     logging:
       driver: "local"
@@ -24,7 +23,6 @@ services:
 
   eufy-bridge:
     build: ./bridge
-    container_name: eufy-bridge
     restart: unless-stopped
     logging:
       driver: "local"
@@ -42,60 +40,13 @@ services:
       - EUFY_WS_URL=ws://eufy-ws:3000
       - DOORBELL_SN=${DOORBELL_SN}
       - HOMEBASE_SN=${HOMEBASE_SN}
-      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL}
-      - N8N_WEBHOOK_USER=${N8N_WEBHOOK_USER}
-      - N8N_WEBHOOK_PASSWORD=${N8N_WEBHOOK_PASSWORD}
+      - VID_ANALYSER_API_URL=${VID_ANALYSER_API_URL}
       - CAPTCHA_PORT=8080
-
-  caddy:
-    image: caddy:latest
-    container_name: caddy
-    restart: unless-stopped
-    logging:
-      driver: "local"
-      options:
-        max-size: "10m"
-        max-file: "5"
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      - SUBDOMAIN=${SUBDOMAIN}
-      - DOMAIN_NAME=${DOMAIN_NAME}
-    volumes:
-      - caddy_data:/data
-      - ${DATA_FOLDER}/caddy_config:/config
-      - ${DATA_FOLDER}/caddy_config/Caddyfile:/etc/caddy/Caddyfile
-
-  n8n:
-    image: docker.n8n.io/n8nio/n8n
-    container_name: n8n
-    restart: always
-    logging:
-      driver: "local"
-      options:
-        max-size: "10m"
-        max-file: "5"
-    ports:
-      - "5678:5678"
-    environment:
-      - N8N_HOST=${SUBDOMAIN}.${DOMAIN_NAME}
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=https
-      - NODE_ENV=production
-      - WEBHOOK_URL=https://${SUBDOMAIN}.${DOMAIN_NAME}/
-      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
-      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
-      - N8N_STORAGE_PATH=/files/n8n-binary-data
-    volumes:
-      - n8n_data:/home/node/.n8n
-      - ${DATA_FOLDER}/local_files:/files
 
   vid-analyser-api:
     build:
       context: ./vid-analyser
       dockerfile: Dockerfile.api
-    container_name: vid-analyser-api
     restart: unless-stopped
     logging:
       driver: "local"
@@ -110,6 +61,4 @@ services:
 
 
 volumes:
-  caddy_data:
-  n8n_data:
   eufy_ws_data:

@@ -1,9 +1,7 @@
 export const EUFY_WS_URL = process.env.EUFY_WS_URL ?? 'ws://localhost:3000';
 export const HOMEBASE_SN = process.env.HOMEBASE_SN;
 export const DOORBELL_SN = process.env.DOORBELL_SN;
-export const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
-export const N8N_WEBHOOK_USER = process.env.N8N_WEBHOOK_USER;
-export const N8N_WEBHOOK_PASSWORD = process.env.N8N_WEBHOOK_PASSWORD;
+export const VID_ANALYSER_API_URL = process.env.VID_ANALYSER_API_URL;
 export const OUTPUT_DIR = process.env.OUTPUT_DIR ?? './local_files';
 
 export const CONNECT_TIMEOUT_MS = 10 * 60 * 1000;       // 10 minutes
@@ -12,4 +10,4 @@ export const QUERY_RESPONSE_TIMEOUT_MS = 30_000;
 
 if (!HOMEBASE_SN) throw new Error('Missing HOMEBASE_SN');
 if (!DOORBELL_SN) throw new Error('Missing DOORBELL_SN');
-if (!N8N_WEBHOOK_URL) throw new Error('Missing N8N_WEBHOOK_URL');
+if (!VID_ANALYSER_API_URL) throw new Error('Missing VID_ANALYSER_API_URL');

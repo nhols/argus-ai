@@ -11,7 +11,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Polls `station.database_query_by_date` with exponential back-off until a
- * new doorbell event that hasn't been sent to n8n yet appears.
+ * new doorbell event that hasn't been sent upstream yet appears.
  *
  * Because the WS bridge returns query results as an *event* (not a direct
  * response), the poller works cooperatively with the event handler:

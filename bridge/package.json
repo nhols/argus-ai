@@ -1,5 +1,5 @@
 {
-    "name": "eufy-to-n8n",
+    "name": "eufy-bridge",
     "type": "module",
     "private": true,
     "dependencies": {

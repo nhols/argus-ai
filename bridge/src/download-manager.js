@@ -3,7 +3,11 @@ import path from 'path';
 import { execSync } from 'child_process';
 import axios from 'axios';
 import { log } from './logger.js';
-import { OUTPUT_DIR, N8N_WEBHOOK_URL, HOMEBASE_SN, N8N_WEBHOOK_USER, N8N_WEBHOOK_PASSWORD } from './config.js';
+import {
+  OUTPUT_DIR,
+  VID_ANALYSER_API_URL,
+  HOMEBASE_SN,
+} from './config.js';
 
 /**
  * Manages a serial download queue and collects both video *and* audio chunks
@@ -18,7 +22,7 @@ import { OUTPUT_DIR, N8N_WEBHOOK_URL, HOMEBASE_SN, N8N_WEBHOOK_USER, N8N_WEBHOOK
  *     → processQueue()  → device.start_download
  *     → onDownloadStarted()            (clear buffers, capture metadata)
  *     → onVideoData() / onAudioData()  (collect chunks)
- *     → onDownloadFinished()           (mux with ffmpeg, POST to n8n, next)
+ *     → onDownloadFinished()           (mux with ffmpeg, POST to API, next)
  */
 export class DownloadManager {
   constructor(wsSend) {
@@ -118,7 +122,7 @@ export class DownloadManager {
 
   // ── finalisation ─────────────────────────────────────────────────────
 
-  /** Mux video+audio → mp4 with ffmpeg, POST to n8n, then process the next item. */
+  /** Mux video+audio → mp4 with ffmpeg, POST to the API, then process the next item. */
   async onDownloadFinished(serialNumber) {
     const dl = this.activeDownloads.get(serialNumber);
     if (!dl) {
@@ -179,8 +183,8 @@ export class DownloadManager {
       execSync(ffmpegCmd, { stdio: 'inherit' });
       log(`✅ Converted to ${mp4Path}`);
 
-      // ── send to n8n ────────────────────────────────────────────────
-      await this.sendToN8n(mp4Path, {
+      // ── send to the API ────────────────────────────────────────────
+      await this.sendToApi(mp4Path, {
         startTime: this.currentDownload?.startTime,
         endTime: this.currentDownload?.endTime,
       });
@@ -198,17 +202,13 @@ export class DownloadManager {
     }
   }
 
-  /** @private POST a finished mp4 to the n8n webhook as base64. */
-  async sendToN8n(mp4Path, { startTime, endTime } = {}) {
+  /** @private POST a finished mp4 to the analysis API as base64. */
+  async sendToApi(mp4Path, { startTime, endTime } = {}) {
     const mp4Data = fs.readFileSync(mp4Path);
     const mp4Base64 = mp4Data.toString('base64');
 
-    const auth = N8N_WEBHOOK_USER && N8N_WEBHOOK_PASSWORD
-      ? { username: N8N_WEBHOOK_USER, password: N8N_WEBHOOK_PASSWORD }
-      : undefined;
-
     const resp = await axios.post(
-      N8N_WEBHOOK_URL,
+      VID_ANALYSER_API_URL,
       {
         receivedAt: new Date().toISOString(),
         stationSerialNumber: HOMEBASE_SN,
@@ -220,11 +220,11 @@ export class DownloadManager {
           filename: path.basename(mp4Path),
         },
       },
-      { timeout: 30_000, auth },
+      { timeout: 30_000 },
     );
 
-    log('📨 Sent video to n8n');
-    log('n8n response:', JSON.stringify({
+    log('📨 Sent video to API');
+    log('API response:', JSON.stringify({
       status: resp.status,
       statusText: resp.statusText,
       data: resp.data,

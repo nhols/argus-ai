@@ -1,26 +1,20 @@
-# eufy-n8n
+# eufy-client
 
-Eufy doorbell → n8n automation bridge. Monitors a Eufy doorbell for motion/ring events, downloads recordings (video + audio) from the homebase, converts to MP4, and POSTs them to an n8n webhook.
+Eufy doorbell processing stack. Monitors a Eufy doorbell for motion/ring events, downloads recordings from the homebase, converts them to MP4, and sends them to the FastAPI analyser service.
 
 ## Architecture
 
 ```
-┌──────────────┐     ┌──────────────────┐     ┌──────────────┐
-│  Eufy Cloud  │◄────│    eufy-ws       │◄────│  eufy-bridge │──► n8n webhook
-│  + Homebase  │     │  (WS server)     │     │  (Node.js)   │
-└──────────────┘     └──────────────────┘     └──────┬───────┘
+┌──────────────┐     ┌──────────────────┐     ┌──────────────┐     ┌──────────────────┐
+│  Eufy Cloud  │◄────│    eufy-ws       │◄────│  eufy-bridge │────►│ vid-analyser-api │
+│  + Homebase  │     │  (WS server)     │     │  (Node.js)   │     │    (FastAPI)     │
+└──────────────┘     └──────────────────┘     └──────┬───────┘     └──────────────────┘
                        port 3000 (internal)          │ :8080
                                                      │ (captcha UI)
-                     ┌──────────────────┐            │
-                     │     Caddy        │            │
-                     │  (reverse proxy) │      ┌─────┴───────┐
-                     │  :80 / :443      │      │ local_files/│
-                     └────────┬─────────┘      │ (mp4s, logs)│
-                              │                └─────────────┘
-                     ┌────────┴─────────┐
-                     │       n8n        │
-                     │  :5678           │
-                     └──────────────────┘
+                                                ┌────┴────────┐
+                                                │ local_files/│
+                                                │ (tmp media) │
+                                                └─────────────┘
 ```
 
 ### Services
@@ -28,9 +22,8 @@ Eufy doorbell → n8n automation bridge. Monitors a Eufy doorbell for motion/rin
 | Service | Description |
 |---|---|
 | **eufy-ws** | [eufy-security-ws](https://github.com/bropat/eufy-security-ws) built from `develop` branches (both WS server and [eufy-security-client](https://github.com/bropat/eufy-security-client)). Exposes the Eufy API over WebSocket on port 3000 (internal only). |
-| **eufy-bridge** | Node.js app that connects to eufy-ws, listens for doorbell events, downloads recordings with audio, converts to MP4 via ffmpeg, and POSTs to n8n. Also runs a captcha HTTP server on port 8080. |
-| **n8n** | Workflow automation. Receives video webhooks from eufy-bridge. Exposed via Caddy at `https://{SUBDOMAIN}.{DOMAIN_NAME}`. |
-| **caddy** | Reverse proxy with automatic HTTPS for n8n. |
+| **eufy-bridge** | Node.js app that connects to eufy-ws, listens for doorbell events, downloads recordings with audio, converts to MP4 via ffmpeg, and POSTs them to the FastAPI analyser. Also runs a captcha HTTP server on port 8080. |
+| **vid-analyser-api** | FastAPI app that analyses uploaded clips. |
 
 ### Bridge internals
 
@@ -42,7 +35,7 @@ The bridge (`bridge/`) is split into modules:
 | `src/config.js` | Environment variables and constants |
 | `src/ws-client.js` | WebSocket client with automatic reconnection and exponential backoff |
 | `src/query-poller.js` | Polls `database_query_by_date` with exponential backoff (5s → 10s → 20s → 40s → 80s) until new recordings appear |
-| `src/download-manager.js` | Serial download queue, collects video + audio chunks per device, muxes with ffmpeg, sends to n8n |
+| `src/download-manager.js` | Serial download queue, collects video + audio chunks per device, muxes with ffmpeg, sends them to the FastAPI API |
 | `src/event-handlers.js` | Message dispatcher → named handler functions |
 | `src/captcha-server.js` | HTTP server for captcha rendering and submission |
 
@@ -51,7 +44,6 @@ The bridge (`bridge/`) is split into modules:
 ### Prerequisites
 
 - Docker and Docker Compose
-- A domain pointed at your VM (for n8n HTTPS via Caddy)
 
 ### DigitalOcean droplet setup
 
@@ -88,12 +80,8 @@ EUFY_COUNTRY=GB
 DOORBELL_SN=T8213PXXXXXXXXXX
 HOMEBASE_SN=T8030TXXXXXXXXXX
 
-N8N_WEBHOOK_URL=https://your-domain.com/webhook/eufy
-
-SUBDOMAIN=n8n
-DOMAIN_NAME=your-domain.com
-GENERIC_TIMEZONE=Europe/London
-DATA_FOLDER=.
+VID_ANALYSER_API_URL=http://vid-analyser-api:8000/analyse-video
+GEMINI_API_KEY=change-me
 ```
 
 ### Run
@@ -183,5 +171,4 @@ This project runs from source via `docker compose build`. To deploy or update:
 |---|---|---|
 | Bridge code | `bridge/` | Git tags on this repo |
 | eufy-security-ws | `eufy-ws/Dockerfile` | Pinned to `develop` branch; rebuild with `--no-cache` to update |
-| n8n | `docker-compose.yml` | Uses `docker.n8n.io/n8nio/n8n` (latest); pin a tag for stability |
-| Caddy | `docker-compose.yml` | Uses `caddy:latest`; pin a tag for stability |
+| vid-analyser-api | `docker-compose.yml` | Built from `vid-analyser/Dockerfile.api` |

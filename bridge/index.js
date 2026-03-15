@@ -1,15 +1,15 @@
 /**
- * Eufy → n8n bridge
+ * Eufy → API bridge
  *
  * Connects to a eufy-security-ws server, listens for doorbell events,
  * downloads recordings (video + audio), converts to mp4, and POSTs them
- * to an n8n webhook.
+ * to the analysis API.
  *
  * See src/ for the individual modules:
  *   config.js          – environment variables & constants
  *   ws-client.js       – WebSocket with auto-reconnect
  *   query-poller.js    – exponential-backoff DB polling
- *   download-manager.js – serial download queue, ffmpeg mux, n8n delivery
+ *   download-manager.js – serial download queue, ffmpeg mux, API delivery
  *   event-handlers.js  – message dispatcher & named handlers
  */
 
@@ -21,7 +21,7 @@ import { DownloadManager } from './src/download-manager.js';
 import { CaptchaServer } from './src/captcha-server.js';
 import { createMessageHandler } from './src/event-handlers.js';
 
-// Track storage_paths already sent to n8n (in-memory; lost on restart)
+// Track storage_paths already sent upstream (in-memory; lost on restart)
 const sentEvents = new Set();
 
 // Initialise components
