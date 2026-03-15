@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from vid_analyser.db.types import ExecutionStatus, NotificationStatus
+from vid_analyser.db.types import ExecutionStatus, NotificationStatus, VideoUploadStatus
 
 
 @dataclass(slots=True)
@@ -20,6 +20,8 @@ class ExecutionRecord:
     input_video_filename: str | None
     input_video_content_type: str | None
     input_video_size_bytes: int | None
+    video_upload_status: str | None
+    video_upload_error: str | None
     notification_status: str | None
     notification_channel: str | None
     notification_target: str | None
@@ -55,6 +57,7 @@ class ExecutionRepository:
         station_serial_number: str | None,
         event_start_time: str | None,
         event_end_time: str | None,
+        video_upload_status: VideoUploadStatus | None = None,
         event_type: str | None = None,
         notification_status: NotificationStatus | None = None,
         notification_channel: str | None = None,
@@ -67,13 +70,13 @@ class ExecutionRepository:
                 INSERT INTO executions (
                     id, created_at, updated_at, status, error_message, source,
                     input_video_s3_bucket, input_video_s3_key, input_video_filename,
-                    input_video_content_type, input_video_size_bytes,
+                    input_video_content_type, input_video_size_bytes, video_upload_status, video_upload_error,
                     notification_status, notification_channel, notification_target,
                     notification_sent_at, notification_error,
                     event_type, device_serial_number, station_serial_number,
                     event_start_time, event_end_time,
                     event_metadata_json, config_snapshot_json, analysis_result_json
-                ) VALUES (?, ?, ?, ?, NULL, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, NULL)
+                ) VALUES (?, ?, ?, ?, NULL, ?, NULL, NULL, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, NULL)
                 """,
                 (
                     execution_id,
@@ -84,6 +87,7 @@ class ExecutionRepository:
                     input_video_filename,
                     input_video_content_type,
                     input_video_size_bytes,
+                    video_upload_status.value if video_upload_status is not None else None,
                     notification_status.value if notification_status is not None else None,
                     notification_channel,
                     notification_target,
@@ -132,7 +136,7 @@ class ExecutionRepository:
 def _serialise_field(key: str, value: Any) -> Any:
     if key.endswith("_json") and value is not None:
         return _to_json(value)
-    if isinstance(value, (ExecutionStatus, NotificationStatus)):
+    if isinstance(value, (ExecutionStatus, NotificationStatus, VideoUploadStatus)):
         return value.value
     return value
 

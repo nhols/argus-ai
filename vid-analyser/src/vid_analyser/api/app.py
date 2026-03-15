@@ -4,6 +4,7 @@ import sys
 import tempfile
 import time
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
 from pathlib import Path
@@ -12,9 +13,10 @@ from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
-from vid_analyser.db import ExecutionRepository, ExecutionStatus, NotificationStatus, init_database
+from vid_analyser.db import ExecutionRepository, ExecutionStatus, NotificationStatus, VideoUploadStatus, init_database
 from vid_analyser.notifications import NotificationService, TelegramNotificationService
 from vid_analyser.pipeline import RunConfig, run
+from vid_analyser.llm.response_model import AnalyseResponse
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,16 @@ class AnalyseVideoMetadata(BaseModel):
     storage_path: str | None = None
     start_time: str | None = None
     end_time: str | None = None
+
+
+@dataclass(slots=True)
+class ExecutionContext:
+    execution_id: str
+    now: str
+    video_s3_key: str
+    notifications_configured: bool
+    user_prompt: str
+    system_prompt: str
 
 
 def _load_run_config_document_from_s3(bucket: str, key: str) -> dict:
@@ -108,6 +120,161 @@ def _build_user_prompt(metadata: AnalyseVideoMetadata, *, base_prompt: str) -> s
     return "\n".join(lines)
 
 
+def _build_execution_context(app: FastAPI, *, video: UploadFile, metadata: AnalyseVideoMetadata) -> ExecutionContext:
+    now = _utc_now()
+    execution_id = str(uuid4())
+    configured_user_prompt = app.state.run_config.user_prompt or DEFAULT_USER_PROMPT
+    configured_system_prompt = app.state.run_config.system_prompt or DEFAULT_SYSTEM_PROMPT
+    notifications_configured = bool(
+        app.state.run_config.telegram_chat_id and app.state.notification_service
+    )
+    return ExecutionContext(
+        execution_id=execution_id,
+        now=now,
+        video_s3_key=_build_video_s3_key(execution_id=execution_id, filename=video.filename),
+        notifications_configured=notifications_configured,
+        user_prompt=_build_user_prompt(metadata, base_prompt=configured_user_prompt),
+        system_prompt=configured_system_prompt,
+    )
+
+
+def _create_execution_record(
+    app: FastAPI,
+    *,
+    context: ExecutionContext,
+    video: UploadFile,
+    metadata: AnalyseVideoMetadata,
+    file_size: int,
+) -> None:
+    app.state.execution_repository.create_execution(
+        execution_id=context.execution_id,
+        created_at=context.now,
+        updated_at=context.now,
+        status=ExecutionStatus.RECEIVED,
+        source="eufy-bridge",
+        event_metadata=metadata.model_dump(exclude_none=True),
+        input_video_filename=video.filename,
+        input_video_content_type=video.content_type,
+        input_video_size_bytes=file_size,
+        video_upload_status=VideoUploadStatus.NOT_ATTEMPTED,
+        device_serial_number=metadata.device_serial_number,
+        station_serial_number=metadata.station_serial_number,
+        event_start_time=metadata.start_time,
+        event_end_time=metadata.end_time,
+        notification_status=NotificationStatus.PENDING if context.notifications_configured else NotificationStatus.NOT_CONFIGURED,
+        notification_channel="telegram" if app.state.run_config.telegram_chat_id else None,
+        notification_target=app.state.run_config.telegram_chat_id,
+        config_snapshot=app.state.run_config_document,
+    )
+
+
+def _mark_execution_failed(app: FastAPI, execution_id: str, message: str) -> None:
+    app.state.execution_repository.update_execution(
+        execution_id,
+        updated_at=_utc_now(),
+        status=ExecutionStatus.FAILED,
+        error_message=message,
+    )
+
+
+def _update_post_analysis_state(
+    app: FastAPI,
+    *,
+    context: ExecutionContext,
+    response: AnalyseResponse,
+) -> None:
+    app.state.execution_repository.update_execution(
+        context.execution_id,
+        updated_at=_utc_now(),
+        status=ExecutionStatus.ANALYSED,
+        analysis_result_json=response.model_dump(mode="json"),
+        notification_status=(
+            NotificationStatus.PENDING
+            if response.send_notification and context.notifications_configured
+            else NotificationStatus.NOT_REQUESTED
+            if not response.send_notification
+            else NotificationStatus.NOT_CONFIGURED
+        ),
+    )
+
+
+async def _send_notification_if_needed(
+    app: FastAPI,
+    *,
+    context: ExecutionContext,
+    response: AnalyseResponse,
+    temp_path: Path,
+    video: UploadFile,
+) -> None:
+    if response.send_notification and context.notifications_configured:
+        try:
+            await app.state.notification_service.send_video(
+                chat_id=app.state.run_config.telegram_chat_id,
+                video_path=temp_path,
+                caption=response.message_for_user,
+            )
+            app.state.execution_repository.update_execution(
+                context.execution_id,
+                updated_at=_utc_now(),
+                status=ExecutionStatus.NOTIFIED,
+                notification_status=NotificationStatus.SENT,
+                notification_channel="telegram",
+                notification_target=app.state.run_config.telegram_chat_id,
+                notification_sent_at=_utc_now(),
+                notification_error=None,
+            )
+            logger.info("Sent Telegram notification for filename=%s", video.filename)
+        except Exception:
+            app.state.execution_repository.update_execution(
+                context.execution_id,
+                updated_at=_utc_now(),
+                notification_status=NotificationStatus.FAILED,
+                notification_channel="telegram",
+                notification_target=app.state.run_config.telegram_chat_id,
+                notification_error="Telegram send failed",
+            )
+            logger.exception("Failed to send Telegram notification for filename=%s", video.filename)
+    elif response.send_notification:
+        app.state.execution_repository.update_execution(
+            context.execution_id,
+            updated_at=_utc_now(),
+            notification_status=NotificationStatus.NOT_CONFIGURED,
+        )
+
+
+def _store_video_in_s3(
+    app: FastAPI,
+    *,
+    context: ExecutionContext,
+    temp_path: Path,
+    video: UploadFile,
+) -> None:
+    try:
+        _upload_video_to_s3(
+            video_path=temp_path,
+            bucket=app.state.video_s3_bucket,
+            key=context.video_s3_key,
+            content_type=video.content_type,
+        )
+        app.state.execution_repository.update_execution(
+            context.execution_id,
+            updated_at=_utc_now(),
+            input_video_s3_bucket=app.state.video_s3_bucket,
+            input_video_s3_key=context.video_s3_key,
+            video_upload_status=VideoUploadStatus.STORED,
+            video_upload_error=None,
+        )
+        logger.info("Uploaded video to s3://%s/%s", app.state.video_s3_bucket, context.video_s3_key)
+    except Exception:
+        app.state.execution_repository.update_execution(
+            context.execution_id,
+            updated_at=_utc_now(),
+            video_upload_status=VideoUploadStatus.FAILED,
+            video_upload_error="Video upload failed",
+        )
+        logger.exception("Failed to upload video to S3 for execution_id=%s", context.execution_id)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
@@ -153,34 +320,13 @@ async def analyse_video(
 
     video_bytes = await video.read()
     file_size = len(video_bytes)
-    now = _utc_now()
-    execution_id = str(uuid4())
-    video_s3_key = _build_video_s3_key(execution_id=execution_id, filename=video.filename)
-    configured_user_prompt = app.state.run_config.user_prompt or DEFAULT_USER_PROMPT
-    configured_system_prompt = app.state.run_config.system_prompt or DEFAULT_SYSTEM_PROMPT
-    notifications_configured = bool(
-        app.state.run_config.telegram_chat_id and app.state.notification_service
-    )
-    user_prompt = _build_user_prompt(metadata, base_prompt=configured_user_prompt)
-    system_prompt = configured_system_prompt
-    app.state.execution_repository.create_execution(
-        execution_id=execution_id,
-        created_at=now,
-        updated_at=now,
-        status=ExecutionStatus.RECEIVED,
-        source="eufy-bridge",
-        event_metadata=metadata.model_dump(exclude_none=True),
-        input_video_filename=video.filename,
-        input_video_content_type=video.content_type,
-        input_video_size_bytes=file_size,
-        device_serial_number=metadata.device_serial_number,
-        station_serial_number=metadata.station_serial_number,
-        event_start_time=metadata.start_time,
-        event_end_time=metadata.end_time,
-        notification_status=NotificationStatus.PENDING if notifications_configured else NotificationStatus.NOT_CONFIGURED,
-        notification_channel="telegram" if app.state.run_config.telegram_chat_id else None,
-        notification_target=app.state.run_config.telegram_chat_id,
-        config_snapshot=app.state.run_config_document,
+    context = _build_execution_context(app, video=video, metadata=metadata)
+    _create_execution_record(
+        app,
+        context=context,
+        video=video,
+        metadata=metadata,
+        file_size=file_size,
     )
     logger.info(
         "Parsed upload filename=%s content_type=%s size_bytes=%s metadata_keys=%s prompt_lengths user=%s system=%s",
@@ -188,16 +334,11 @@ async def analyse_video(
         video.content_type,
         file_size,
         sorted(metadata.model_dump(exclude_none=True).keys()),
-        len(user_prompt),
-        len(system_prompt),
+        len(context.user_prompt),
+        len(context.system_prompt),
     )
     if file_size == 0:
-        app.state.execution_repository.update_execution(
-            execution_id,
-            updated_at=_utc_now(),
-            status=ExecutionStatus.FAILED,
-            error_message="Uploaded video is empty",
-        )
+        _mark_execution_failed(app, context.execution_id, "Uploaded video is empty")
         raise HTTPException(status_code=400, detail="Uploaded video is empty")
 
     start = time.perf_counter()
@@ -211,80 +352,13 @@ async def analyse_video(
         logger.info("Starting analysis for filename=%s", video.filename)
         response = await run(
             video_path=temp_path,
-            user_prompt=user_prompt,
-            system_prompt=system_prompt,
+            user_prompt=context.user_prompt,
+            system_prompt=context.system_prompt,
             config=app.state.run_config,
         )
-        app.state.execution_repository.update_execution(
-            execution_id,
-            updated_at=_utc_now(),
-            status=ExecutionStatus.ANALYSED,
-            analysis_result_json=response.model_dump(mode="json"),
-            notification_status=(
-                NotificationStatus.PENDING
-                if response.send_notification and notifications_configured
-                else NotificationStatus.NOT_REQUESTED
-                if not response.send_notification
-                else NotificationStatus.NOT_CONFIGURED
-            ),
-        )
-        if response.send_notification and notifications_configured:
-            try:
-                await app.state.notification_service.send_video(
-                    chat_id=app.state.run_config.telegram_chat_id,
-                    video_path=temp_path,
-                    caption=response.message_for_user,
-                )
-                app.state.execution_repository.update_execution(
-                    execution_id,
-                    updated_at=_utc_now(),
-                    status=ExecutionStatus.NOTIFIED,
-                    notification_status=NotificationStatus.SENT,
-                    notification_channel="telegram",
-                    notification_target=app.state.run_config.telegram_chat_id,
-                    notification_sent_at=_utc_now(),
-                    notification_error=None,
-                )
-                logger.info("Sent Telegram notification for filename=%s", video.filename)
-            except Exception:
-                app.state.execution_repository.update_execution(
-                    execution_id,
-                    updated_at=_utc_now(),
-                    notification_status=NotificationStatus.FAILED,
-                    notification_channel="telegram",
-                    notification_target=app.state.run_config.telegram_chat_id,
-                    notification_error="Telegram send failed",
-                )
-                logger.exception("Failed to send Telegram notification for filename=%s", video.filename)
-        elif response.send_notification:
-            app.state.execution_repository.update_execution(
-                execution_id,
-                updated_at=_utc_now(),
-                notification_status=NotificationStatus.NOT_CONFIGURED,
-            )
-
-        try:
-            _upload_video_to_s3(
-                video_path=temp_path,
-                bucket=app.state.video_s3_bucket,
-                key=video_s3_key,
-                content_type=video.content_type,
-            )
-            app.state.execution_repository.update_execution(
-                execution_id,
-                updated_at=_utc_now(),
-                input_video_s3_bucket=app.state.video_s3_bucket,
-                input_video_s3_key=video_s3_key,
-            )
-            logger.info("Uploaded video to s3://%s/%s", app.state.video_s3_bucket, video_s3_key)
-        except Exception:
-            app.state.execution_repository.update_execution(
-                execution_id,
-                updated_at=_utc_now(),
-                status=ExecutionStatus.FAILED,
-                error_message="Video upload failed",
-            )
-            logger.exception("Failed to upload video to S3 for execution_id=%s", execution_id)
+        _update_post_analysis_state(app, context=context, response=response)
+        await _send_notification_if_needed(app, context=context, response=response, temp_path=temp_path, video=video)
+        _store_video_in_s3(app, context=context, temp_path=temp_path, video=video)
 
         duration_ms = (time.perf_counter() - start) * 1000
         logger.info(
@@ -298,12 +372,7 @@ async def analyse_video(
         raise
     except Exception:
         duration_ms = (time.perf_counter() - start) * 1000
-        app.state.execution_repository.update_execution(
-            execution_id,
-            updated_at=_utc_now(),
-            status=ExecutionStatus.FAILED,
-            error_message="Video analysis failed",
-        )
+        _mark_execution_failed(app, context.execution_id, "Video analysis failed")
         logger.exception(
             "Video analysis failed size_bytes=%s duration_ms=%.2f",
             file_size,

@@ -306,7 +306,7 @@ def test_analyse_video_persists_execution_record(tmp_path: Path, monkeypatch: Mo
         assert response.status_code == 200
         records = client.app.state.execution_repository
 
-    row = records._connect().execute("SELECT status, device_serial_number, station_serial_number, analysis_result_json, config_snapshot_json, notification_status, input_video_s3_bucket, input_video_s3_key FROM executions").fetchone()
+    row = records._connect().execute("SELECT status, device_serial_number, station_serial_number, analysis_result_json, config_snapshot_json, notification_status, input_video_s3_bucket, input_video_s3_key, video_upload_status, video_upload_error FROM executions").fetchone()
     assert row["status"] == "analysed"
     assert row["device_serial_number"] == "device-1"
     assert row["station_serial_number"] == "station-1"
@@ -315,6 +315,8 @@ def test_analyse_video_persists_execution_record(tmp_path: Path, monkeypatch: Mo
     assert row["notification_status"] == "not_requested"
     assert row["input_video_s3_bucket"] == "test-video-bucket"
     assert row["input_video_s3_key"].startswith("videos/")
+    assert row["video_upload_status"] == "stored"
+    assert row["video_upload_error"] is None
 
 
 def test_analyse_video_marks_notification_not_configured_when_requested_without_setup(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
@@ -353,6 +355,46 @@ def test_analyse_video_marks_notification_not_configured_when_requested_without_
 
     row = records._connect().execute("SELECT notification_status FROM executions").fetchone()
     assert row["notification_status"] == "not_configured"
+
+
+def test_analyse_video_marks_video_upload_failed_without_overloading_execution_status(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv(CONFIG_S3_BUCKET_ENV_VAR, "test-bucket")
+    monkeypatch.setenv(VIDEO_S3_BUCKET_ENV_VAR, "test-video-bucket")
+    monkeypatch.setenv(SQLITE_PATH_ENV_VAR, str(tmp_path / "app.db"))
+    monkeypatch.setattr(
+        api_module,
+        "_load_run_config_document_from_s3",
+        lambda bucket, key: json.loads(_config_json()),
+    )
+    monkeypatch.delenv(TELEGRAM_BOT_TOKEN_ENV_VAR, raising=False)
+    monkeypatch.setattr(api_module, "_upload_video_to_s3", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    response_model = AnalyseResponse(
+        ir_mode="unknown",
+        parking_spot_status="occupied",
+        number_plate=None,
+        events_description="A car is parked.",
+        message_for_user="A car is parked in your parking spot.",
+        send_notification=False,
+    )
+
+    async def fake_run(video_path: str | Path, user_prompt: str, system_prompt: str, config: RunConfig):
+        return response_model
+
+    monkeypatch.setattr(api_module, "run", fake_run)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/analyse-video",
+            files={"video": ("clip.mp4", b"video-bytes", "video/mp4")},
+        )
+        assert response.status_code == 200
+        records = client.app.state.execution_repository
+
+    row = records._connect().execute("SELECT status, video_upload_status, video_upload_error FROM executions").fetchone()
+    assert row["status"] == "analysed"
+    assert row["video_upload_status"] == "failed"
+    assert row["video_upload_error"] == "Video upload failed"
 
 
 def test_configure_logging_adds_root_handler(monkeypatch: MonkeyPatch) -> None:

@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS executions (
     input_video_filename TEXT,
     input_video_content_type TEXT,
     input_video_size_bytes INTEGER,
+    video_upload_status TEXT,
+    video_upload_error TEXT,
 
     notification_status TEXT,
     notification_channel TEXT,
@@ -41,6 +43,7 @@ CREATE INDEX IF NOT EXISTS idx_executions_status ON executions(status);
 CREATE INDEX IF NOT EXISTS idx_executions_device_serial_number ON executions(device_serial_number);
 CREATE INDEX IF NOT EXISTS idx_executions_event_start_time ON executions(event_start_time);
 CREATE INDEX IF NOT EXISTS idx_executions_notification_status ON executions(notification_status);
+CREATE INDEX IF NOT EXISTS idx_executions_video_upload_status ON executions(video_upload_status);
 """
 
 

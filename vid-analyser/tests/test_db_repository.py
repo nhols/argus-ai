@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from vid_analyser.db import ExecutionRepository, ExecutionStatus, NotificationStatus, init_database
+from vid_analyser.db import ExecutionRepository, ExecutionStatus, NotificationStatus, VideoUploadStatus, init_database
 
 
 def test_execution_repository_create_update_and_get(tmp_path: Path) -> None:
@@ -23,6 +23,7 @@ def test_execution_repository_create_update_and_get(tmp_path: Path) -> None:
         station_serial_number="station-1",
         event_start_time="2026-03-15T11:59:00Z",
         event_end_time="2026-03-15T12:00:00Z",
+        video_upload_status=VideoUploadStatus.NOT_ATTEMPTED,
         notification_status=NotificationStatus.NOT_REQUESTED,
         config_snapshot={"config_s3_key": "config/run_config.json"},
     )
@@ -33,6 +34,7 @@ def test_execution_repository_create_update_and_get(tmp_path: Path) -> None:
         status=ExecutionStatus.ANALYSED,
         analysis_result_json={"send_notification": True},
         notification_status=NotificationStatus.PENDING,
+        video_upload_status=VideoUploadStatus.STORED,
     )
 
     record = repo.get_execution("exec-1")
@@ -40,6 +42,7 @@ def test_execution_repository_create_update_and_get(tmp_path: Path) -> None:
     assert record.id == "exec-1"
     assert record.status == "analysed"
     assert record.notification_status == "pending"
+    assert record.video_upload_status == "stored"
     assert json.loads(record.event_metadata_json) == {"storage_path": "abc"}
     assert json.loads(record.config_snapshot_json or "{}") == {"config_s3_key": "config/run_config.json"}
     assert json.loads(record.analysis_result_json or "{}") == {"send_notification": True}
