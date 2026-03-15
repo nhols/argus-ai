@@ -32,6 +32,7 @@ class _RunConfigInput(BaseModel):
     enable_person_id: bool = False
     system_prompt: str | None = None
     user_prompt: str | None = None
+    telegram_chat_id: str | None = None
 
     def to_run_config(self) -> "RunConfig":
         if self.provider.kind != "gemini":
@@ -44,6 +45,7 @@ class _RunConfigInput(BaseModel):
             person_id=person_id,
             system_prompt=self.system_prompt,
             user_prompt=self.user_prompt,
+            telegram_chat_id=self.telegram_chat_id,
         )
 
 
@@ -55,6 +57,7 @@ class RunConfig(BaseModel):
     person_id: PersonIdConfig | None = None
     system_prompt: str | None = None
     user_prompt: str | None = None
+    telegram_chat_id: str | None = None
 
     @classmethod
     def from_json_path(cls, path: str | Path) -> "RunConfig":

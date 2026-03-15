@@ -13,6 +13,7 @@ from vid_analyser.pipeline import RunConfig
 api_module = importlib.import_module("vid_analyser.api.app")
 CONFIG_S3_BUCKET_ENV_VAR = api_module.CONFIG_S3_BUCKET_ENV_VAR
 CONFIG_S3_KEY_ENV_VAR = api_module.CONFIG_S3_KEY_ENV_VAR
+TELEGRAM_BOT_TOKEN_ENV_VAR = api_module.TELEGRAM_BOT_TOKEN_ENV_VAR
 app = api_module.app
 
 
@@ -39,6 +40,7 @@ def _config_json(
     provider_kind: str = "gemini",
     system_prompt: str | None = None,
     user_prompt: str | None = None,
+    telegram_chat_id: str | None = None,
 ) -> str:
     body = {
         "provider": {"kind": provider_kind, "model": "gemini-3-flash-preview"},
@@ -49,6 +51,8 @@ def _config_json(
         body["system_prompt"] = system_prompt
     if user_prompt is not None:
         body["user_prompt"] = user_prompt
+    if telegram_chat_id is not None:
+        body["telegram_chat_id"] = telegram_chat_id
     return json.dumps(body)
 
 
@@ -69,11 +73,12 @@ def test_run_config_from_json_path_rejects_invalid_provider(tmp_path: Path) -> N
 
 def test_run_config_from_json_text_includes_optional_prompts() -> None:
     config = RunConfig.from_json_text(
-        _config_json(system_prompt="system from s3", user_prompt="user from s3")
+        _config_json(system_prompt="system from s3", user_prompt="user from s3", telegram_chat_id="1234")
     )
 
     assert config.system_prompt == "system from s3"
     assert config.user_prompt == "user from s3"
+    assert config.telegram_chat_id == "1234"
 
 
 def test_analyse_video_calls_run_and_cleans_up(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
@@ -86,6 +91,7 @@ def test_analyse_video_calls_run_and_cleans_up(tmp_path: Path, monkeypatch: Monk
             _config_json(system_prompt="system from s3", user_prompt="user from s3")
         ),
     )
+    monkeypatch.delenv(TELEGRAM_BOT_TOKEN_ENV_VAR, raising=False)
 
     response_model = AnalyseResponse(
         ir_mode="unknown",
@@ -130,6 +136,7 @@ def test_analyse_video_calls_run_and_cleans_up(tmp_path: Path, monkeypatch: Monk
 def test_analyse_video_cleans_up_temp_file_on_failure(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setenv(CONFIG_S3_BUCKET_ENV_VAR, "test-bucket")
     monkeypatch.setattr(api_module, "_load_run_config_from_s3", lambda bucket, key: RunConfig.from_json_text(_config_json()))
+    monkeypatch.delenv(TELEGRAM_BOT_TOKEN_ENV_VAR, raising=False)
     captured: dict[str, object] = {}
 
     async def fake_run(video_path: str | Path, user_prompt: str, system_prompt: str, config: RunConfig):
@@ -153,6 +160,7 @@ def test_analyse_video_cleans_up_temp_file_on_failure(tmp_path: Path, monkeypatc
 def test_analyse_video_rejects_empty_upload(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setenv(CONFIG_S3_BUCKET_ENV_VAR, "test-bucket")
     monkeypatch.setattr(api_module, "_load_run_config_from_s3", lambda bucket, key: RunConfig.from_json_text(_config_json()))
+    monkeypatch.delenv(TELEGRAM_BOT_TOKEN_ENV_VAR, raising=False)
     mocked_run = AsyncMock()
     monkeypatch.setattr(api_module, "run", mocked_run)
 
@@ -171,6 +179,7 @@ def test_analyse_video_rejects_empty_upload(tmp_path: Path, monkeypatch: MonkeyP
 def test_analyse_video_accepts_request_without_metadata(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setenv(CONFIG_S3_BUCKET_ENV_VAR, "test-bucket")
     monkeypatch.setattr(api_module, "_load_run_config_from_s3", lambda bucket, key: RunConfig.from_json_text(_config_json()))
+    monkeypatch.delenv(TELEGRAM_BOT_TOKEN_ENV_VAR, raising=False)
     response_model = AnalyseResponse(
         ir_mode="unknown",
         parking_spot_status="unknown",
@@ -195,6 +204,45 @@ def test_analyse_video_accepts_request_without_metadata(tmp_path: Path, monkeypa
 
     assert response.status_code == 200
     assert captured["user_prompt"] == api_module.DEFAULT_USER_PROMPT
+
+
+def test_analyse_video_sends_telegram_notification_when_enabled(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv(CONFIG_S3_BUCKET_ENV_VAR, "test-bucket")
+    monkeypatch.setenv(TELEGRAM_BOT_TOKEN_ENV_VAR, "bot-token")
+    fake_service = AsyncMock()
+    monkeypatch.setattr(
+        api_module,
+        "_load_run_config_from_s3",
+        lambda bucket, key: RunConfig.from_json_text(_config_json(telegram_chat_id="1234")),
+    )
+    monkeypatch.setattr(api_module, "_build_notification_service", lambda: fake_service)
+
+    response_model = AnalyseResponse(
+        ir_mode="unknown",
+        parking_spot_status="unknown",
+        number_plate=None,
+        events_description="none",
+        message_for_user="A car has arrived in your parking spot.",
+        send_notification=True,
+    )
+
+    async def fake_run(video_path: str | Path, user_prompt: str, system_prompt: str, config: RunConfig):
+        return response_model
+
+    monkeypatch.setattr(api_module, "run", fake_run)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/analyse-video",
+            files={"video": ("clip.mp4", b"video-bytes", "video/mp4")},
+        )
+
+    assert response.status_code == 200
+    fake_service.send_video.assert_awaited_once()
+    kwargs = fake_service.send_video.await_args.kwargs
+    assert kwargs["chat_id"] == "1234"
+    assert kwargs["caption"] == "A car has arrived in your parking spot."
+    assert not Path(kwargs["video_path"]).exists()
 
 
 def test_configure_logging_adds_root_handler(monkeypatch: MonkeyPatch) -> None:

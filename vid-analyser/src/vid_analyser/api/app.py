@@ -9,12 +9,14 @@ from typing import Annotated
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
+from vid_analyser.notifications import NotificationService, TelegramNotificationService
 from vid_analyser.pipeline import RunConfig, run
 
 logger = logging.getLogger(__name__)
 
 CONFIG_S3_BUCKET_ENV_VAR = "VID_ANALYSER_CONFIG_S3_BUCKET"
 CONFIG_S3_KEY_ENV_VAR = "VID_ANALYSER_CONFIG_S3_KEY"
+TELEGRAM_BOT_TOKEN_ENV_VAR = "TELEGRAM_BOT_TOKEN"
 DEFAULT_CONFIG_S3_KEY = "config/run_config.json"
 DEFAULT_USER_PROMPT = "Analyse this doorbell video and return the required JSON response."
 DEFAULT_SYSTEM_PROMPT = (
@@ -41,6 +43,14 @@ def _load_run_config_from_s3(bucket: str, key: str) -> RunConfig:
     response = s3.get_object(Bucket=bucket, Key=key)
     body = response["Body"].read().decode("utf-8")
     return RunConfig.from_json_text(body)
+
+
+def _build_notification_service() -> NotificationService | None:
+    token = os.getenv(TELEGRAM_BOT_TOKEN_ENV_VAR)
+    if not token:
+        logger.info("Telegram bot token not configured; notifications disabled")
+        return None
+    return TelegramNotificationService(token=token)
 
 
 def configure_logging() -> None:
@@ -77,6 +87,7 @@ async def lifespan(app: FastAPI):
 
     key = os.getenv(CONFIG_S3_KEY_ENV_VAR, DEFAULT_CONFIG_S3_KEY)
     app.state.run_config = _load_run_config_from_s3(bucket, key)
+    app.state.notification_service = _build_notification_service()
     logger.info("Loaded run config from s3://%s/%s", bucket, key)
     yield
 
@@ -138,6 +149,17 @@ async def analyse_video(
             system_prompt=system_prompt,
             config=app.state.run_config,
         )
+        if response.send_notification and app.state.run_config.telegram_chat_id and app.state.notification_service:
+            try:
+                await app.state.notification_service.send_video(
+                    chat_id=app.state.run_config.telegram_chat_id,
+                    video_path=temp_path,
+                    caption=response.message_for_user,
+                )
+                logger.info("Sent Telegram notification for filename=%s", video.filename)
+            except Exception:
+                logger.exception("Failed to send Telegram notification for filename=%s", video.filename)
+
         duration_ms = (time.perf_counter() - start) * 1000
         logger.info(
             "Completed analysis filename=%s size_bytes=%s duration_ms=%.2f",

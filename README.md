@@ -84,6 +84,7 @@ VID_ANALYSER_API_URL=http://vid-analyser-api:8000/analyse-video
 GEMINI_API_KEY=change-me
 VID_ANALYSER_CONFIG_S3_BUCKET=your-config-bucket
 VID_ANALYSER_CONFIG_S3_KEY=config/run_config.json
+TELEGRAM_BOT_TOKEN=change-me
 ```
 
 ### Run
