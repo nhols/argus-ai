@@ -3,8 +3,24 @@ set -euo pipefail
 
 APP_DIR="${app_dir}"
 
-dnf update -y
-dnf install -y docker docker-compose-plugin git make rsync
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y ca-certificates curl gnupg lsb-release git make rsync
+
+install -m 0755 -d /etc/apt/keyrings
+if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+fi
+
+ARCH="$(dpkg --print-architecture)"
+CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+echo \
+  "deb [arch=${ARCH} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${CODENAME} stable" \
+  > /etc/apt/sources.list.d/docker.list
+
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 systemctl enable docker
 systemctl start docker
@@ -12,7 +28,8 @@ systemctl start docker
 mkdir -p "$${APP_DIR}"
 mkdir -p "$${APP_DIR}/local_files/vid-analyser"
 mkdir -p "$${APP_DIR}/local_files"
+mkdir -p "$${APP_DIR}/local_files/vid-analyser/storage"
 
-if id ec2-user >/dev/null 2>&1; then
-  usermod -aG docker ec2-user || true
+if id root >/dev/null 2>&1 && id ubuntu >/dev/null 2>&1; then
+  usermod -aG docker ubuntu || true
 fi

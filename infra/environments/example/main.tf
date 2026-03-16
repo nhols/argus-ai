@@ -1,35 +1,13 @@
-module "storage" {
-  source = "../../modules/storage"
+module "droplet" {
+  source = "../../modules/droplet"
 
-  bucket_name           = var.bucket_name
-  video_prefix          = var.video_prefix
-  video_expiration_days = var.video_expiration_days
-  tags                  = var.tags
-}
-
-module "iam" {
-  source = "../../modules/iam"
-
-  name                 = var.name
-  bucket_arn           = module.storage.bucket_arn
-  config_key           = var.config_key
-  video_prefix         = module.storage.video_prefix
-  enable_bookings_read = var.enable_bookings_read
-  tags                 = var.tags
-}
-
-module "instance" {
-  source = "../../modules/instance"
-
-  name                  = var.name
-  vpc_id                = var.vpc_id
-  subnet_id             = var.subnet_id
-  instance_type         = var.instance_type
-  instance_profile_name = module.iam.instance_profile_name
-  key_name              = var.key_name
-  ssh_cidr              = var.ssh_cidr
-  root_volume_size_gb   = var.root_volume_size_gb
-  app_dir               = var.app_dir
-  user_data_template    = "${path.module}/../../scripts/bootstrap.sh.tftpl"
-  tags                  = var.tags
+  name                = var.name
+  region              = var.do_region
+  size                = var.droplet_size
+  image               = var.image
+  ssh_key_fingerprint = var.ssh_key_fingerprint
+  ssh_cidr            = var.ssh_cidr
+  app_dir             = var.app_dir
+  user_data_template  = "${path.module}/../../scripts/bootstrap.sh.tftpl"
+  tags                = var.tags
 }

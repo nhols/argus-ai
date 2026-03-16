@@ -57,12 +57,10 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - VID_ANALYSER_STORAGE_PROVIDER=${VID_ANALYSER_STORAGE_PROVIDER}
       - VID_ANALYSER_STORAGE_ROOT=${VID_ANALYSER_STORAGE_ROOT}
-      - VID_ANALYSER_VIDEO_S3_BUCKET=${VID_ANALYSER_VIDEO_S3_BUCKET}
       - VID_ANALYSER_SQLITE_PATH=${VID_ANALYSER_SQLITE_PATH}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     volumes:
       - ./local_files/vid-analyser:/app/data
-      - ./local_files/vid-analyser-storage:/app/storage
 
 
 volumes:

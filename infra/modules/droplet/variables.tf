@@ -1,18 +1,12 @@
-variable "do_token" {
-  type      = string
-  sensitive = true
-}
-
-variable "do_region" {
-  type    = string
-  default = "lon1"
-}
-
 variable "name" {
   type = string
 }
 
-variable "droplet_size" {
+variable "region" {
+  type = string
+}
+
+variable "size" {
   type    = string
   default = "s-1vcpu-1gb"
 }
@@ -27,13 +21,16 @@ variable "ssh_key_fingerprint" {
 }
 
 variable "ssh_cidr" {
-  type    = string
-  default = "0.0.0.0/0"
+  type = string
 }
 
 variable "app_dir" {
   type    = string
   default = "/opt/argusai"
+}
+
+variable "user_data_template" {
+  type = string
 }
 
 variable "tags" {

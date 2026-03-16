@@ -2,12 +2,11 @@
 
 STORAGE_PROVIDER ?= local
 STORAGE_ROOT ?= local_files/storage
-VIDEO_S3_BUCKET ?=
 SQLITE_PATH ?= local_files/vid_analyser.db
 PORT ?= 8000
 
 run:
-	VID_ANALYSER_STORAGE_PROVIDER=$(STORAGE_PROVIDER) VID_ANALYSER_STORAGE_ROOT=$(STORAGE_ROOT) VID_ANALYSER_VIDEO_S3_BUCKET=$(VIDEO_S3_BUCKET) VID_ANALYSER_SQLITE_PATH=$(SQLITE_PATH) PYTHONPATH=src uv run uvicorn vid_analyser.api.app:app --host 0.0.0.0 --port $(PORT) --log-level info
+	VID_ANALYSER_STORAGE_PROVIDER=$(STORAGE_PROVIDER) VID_ANALYSER_STORAGE_ROOT=$(STORAGE_ROOT) VID_ANALYSER_SQLITE_PATH=$(SQLITE_PATH) PYTHONPATH=src uv run uvicorn vid_analyser.api.app:app --host 0.0.0.0 --port $(PORT) --log-level info
 
 eval-labeler:
 	PYTHONPATH=src uv run streamlit run src/vid_analyser/evals/ui/labeler/app.py

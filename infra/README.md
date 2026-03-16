@@ -1,23 +1,20 @@
 # Infrastructure
 
-This directory contains a minimal AWS deployment layout for one instance of the
-stack.
+This directory contains a minimal DigitalOcean deployment layout for one single-tenant ArgusAI instance.
 
 Current scope:
 
-- one EC2 instance
-- one S3 bucket
-- one IAM role / instance profile
-- EC2 instance in an existing VPC / subnet with a public IPv4
+- one DigitalOcean droplet (`s-1vcpu-1gb`)
+- one firewall
+- public IPv4
 - SSH access restricted by CIDR
+- local video storage on the droplet filesystem
+- no object storage
 - no DNS
-- no Terraform-managed secrets
 
 ## Layout
 
-- `modules/storage`: S3 bucket and lifecycle configuration
-- `modules/iam`: EC2 IAM role, instance profile, and S3 access policy
-- `modules/instance`: EC2 instance, security group, and bootstrap user data
+- `modules/droplet`: DigitalOcean droplet and firewall rules
 - `environments/example`: example environment wiring the modules together
 - `scripts/bootstrap.sh.tftpl`: instance bootstrap script used by Terraform
 - `scripts/deploy.sh`: local deploy helper to sync the repo, copy `.env`, and start Compose
