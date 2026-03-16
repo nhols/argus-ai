@@ -17,13 +17,13 @@ Current scope:
 - `modules/droplet`: DigitalOcean droplet and firewall rules
 - `environments/example`: example environment wiring the modules together
 - `scripts/bootstrap.sh.tftpl`: instance bootstrap script used by Terraform
-- `scripts/deploy.sh`: local deploy helper to sync the repo, copy `.env`, and start Compose
+- `scripts/deploy.sh`: local deploy helper to check out a git ref on the server, copy `.env`, and start Compose
 
 ## Typical flow
 
 1. Copy `infra/environments/example/terraform.tfvars.example` to `terraform.tfvars` and fill in values.
 2. Run `terraform init` and `terraform apply` from the environment directory.
 3. Use `infra/scripts/deploy.sh` to:
-   - sync the repo to the instance
+   - check out the selected git ref on the instance
    - copy the `.env`
    - run `docker compose up -d --build`

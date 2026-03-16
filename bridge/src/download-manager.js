@@ -7,6 +7,7 @@ import { log } from './logger.js';
 import {
   OUTPUT_DIR,
   VID_ANALYSER_API_URL,
+  VID_ANALYSER_API_KEY,
   HOMEBASE_SN,
 } from './config.js';
 
@@ -218,7 +219,12 @@ export class DownloadManager {
     const resp = await axios.post(
       VID_ANALYSER_API_URL,
       form,
-      { timeout: 30_000 },
+      {
+        timeout: 30_000,
+        headers: {
+          'X-API-Key': VID_ANALYSER_API_KEY,
+        },
+      },
     );
 
     log('📨 Sent video to API');

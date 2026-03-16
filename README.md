@@ -185,18 +185,28 @@ This project runs from source via `docker compose build`. To deploy or update:
    git push origin master --tags
    ```
 
-3. **On the VM — pull and rebuild:**
+3. **Deploy from git using the helper script:**
    ```sh
-   cd /path/to/argusai
-   git pull
-   docker compose build      # rebuilds eufy-ws and eufy-bridge images
-   docker compose up -d       # restarts with new images
+   infra/scripts/deploy.sh \
+     --host <server-ip> \
+     --user root \
+     --env-file .env \
+     --identity ~/.ssh/<your-key>
    ```
 
-   Or if only the bridge changed:
+   By default this deploys:
+   - the current repo's `origin` remote
+   - the current local `HEAD` commit
+
+   You can override that with:
    ```sh
-   git pull
-   make rebuild
+   infra/scripts/deploy.sh \
+     --host <server-ip> \
+     --user root \
+     --env-file .env \
+     --identity ~/.ssh/<your-key> \
+     --repo <git-url> \
+     --ref <branch-tag-or-commit>
    ```
 
 4. **To update the upstream eufy-security-ws / eufy-security-client** (e.g. to pick up new develop commits):
