@@ -13,12 +13,14 @@ from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
+from vid_analyser.config_state import apply_config_update
 from vid_analyser.db import ConfigRepository, ExecutionRepository, ExecutionStatus, NotificationStatus, VideoUploadStatus, init_database
 from vid_analyser.notifications import NotificationService, TelegramNotificationService
 from vid_analyser.pipeline import RunConfig, run
 from vid_analyser.llm.response_model import AnalyseResponse
 from vid_analyser.prompting import build_system_prompt, build_user_prompt
 from vid_analyser.storage import build_storage_provider
+from vid_analyser.ui import router as ui_router
 
 logger = logging.getLogger(__name__)
 
@@ -300,6 +302,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(ui_router)
 
 
 @app.get("/config")
@@ -315,22 +318,14 @@ async def get_config():
 @app.put("/config")
 async def update_config(payload: ConfigUpdateRequest):
     try:
-        validated_config = RunConfig.from_json_text(json.dumps(payload.config))
+        return apply_config_update(
+            app,
+            config=payload.config,
+            created_at=_utc_now(),
+            source=payload.source,
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid config: {exc}") from None
-
-    record = app.state.config_repository.insert_config_version(
-        config=payload.config,
-        created_at=_utc_now(),
-        source=payload.source,
-    )
-    app.state.run_config = validated_config
-    app.state.run_config_document = payload.config
-    app.state.run_config_version_id = record.id
-    return {
-        "id": record.id,
-        "config": payload.config,
-    }
 
 
 @app.post("/analyse-video")

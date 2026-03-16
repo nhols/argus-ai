@@ -136,6 +136,19 @@ class ExecutionRepository:
             return None
         return ExecutionRecord(**dict(row))
 
+    def list_executions(self, *, limit: int = 100) -> list[ExecutionRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM executions
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [ExecutionRecord(**dict(row)) for row in rows]
+
     def get_recent_notification_messages(self, *, limit: int) -> list[dict[str, str | None]]:
         if limit <= 0:
             return []

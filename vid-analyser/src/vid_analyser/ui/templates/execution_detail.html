@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Execution Detail</h1>
+<p><a href="/ui/executions">Back to executions</a></p>
+
+<div class="grid">
+  <div class="card">
+    <h2>Summary</h2>
+    <p><strong>ID:</strong> {{ execution.id }}</p>
+    <p><strong>Created:</strong> {{ execution.created_at }}</p>
+    <p><strong>Video:</strong> {{ execution.input_video_filename or "unknown" }}</p>
+    <p><strong>Status:</strong> {{ execution.status }}</p>
+    <p><strong>Notification status:</strong> {{ execution.notification_status or "unknown" }}</p>
+    <p><strong>Video upload status:</strong> {{ execution.video_upload_status or "unknown" }}</p>
+    <p><strong>Video storage provider:</strong> {{ execution.video_storage_provider or "unknown" }}</p>
+    <p><strong>Video storage path:</strong> {{ execution.video_storage_path or "unknown" }}</p>
+  </div>
+
+  <div class="card">
+    <h2>Video</h2>
+    {% if video_available %}
+    <video controls preload="metadata" src="/ui/executions/{{ execution.id }}/video"></video>
+    {% else %}
+    <p class="muted">No local video available for playback.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="json-block">
+  <h2>Event Metadata</h2>
+  <pre>{{ event_metadata_pretty }}</pre>
+</div>
+
+<div class="json-block">
+  <h2>Analysis Result</h2>
+  <pre>{{ analysis_result_pretty or "{}" }}</pre>
+</div>
+
+<div class="json-block">
+  <h2>Config Used</h2>
+  {% if config_record %}
+  <p><strong>Config version:</strong> {{ config_record.id }}</p>
+  <p><strong>Saved:</strong> {{ config_record.created_at }}</p>
+  <pre>{{ config_json_pretty }}</pre>
+  {% else %}
+  <p class="muted">No config record found.</p>
+  {% endif %}
+</div>
+{% endblock %}

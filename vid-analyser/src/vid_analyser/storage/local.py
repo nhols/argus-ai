@@ -23,6 +23,9 @@ class LocalStorageProvider(StorageProvider):
         shutil.copy2(source_path, destination_path)
         return VideoReference(provider="local", path=str(relative_path))
 
+    def resolve_path(self, relative_path: str | Path) -> Path:
+        return self._root / relative_path
+
 
 def _build_video_path(*, execution_id: str, filename: str | None) -> Path:
     safe_filename = filename or "video.mp4"

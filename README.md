@@ -86,6 +86,8 @@ VID_ANALYSER_STORAGE_PROVIDER=local
 VID_ANALYSER_STORAGE_ROOT=/app/data/storage
 VID_ANALYSER_SQLITE_PATH=/app/data/vid_analyser.db
 TELEGRAM_BOT_TOKEN=change-me
+UI_BASIC_AUTH_USER=admin
+UI_BASIC_AUTH_PASSWORD=change-me
 
 # Only needed if your prompt template uses {{bookings}}
 AWS_ACCESS_KEY_ID=
@@ -102,6 +104,16 @@ curl -X PUT http://localhost:8000/config \
 ```
 
 If the active prompt template includes `{{bookings}}`, the API will load `s3://jp-bookings/bookings.json` using standard AWS credentials from the environment. In Docker Compose that means setting `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and usually `AWS_DEFAULT_REGION` in `.env`.
+
+### Admin UI
+
+The API also exposes a minimal admin UI:
+
+- `/ui/executions`
+- `/ui/executions/<execution-id>`
+- `/ui/config`
+
+These routes are protected with HTTP basic auth using `UI_BASIC_AUTH_USER` and `UI_BASIC_AUTH_PASSWORD`.
 
 ### Run
 

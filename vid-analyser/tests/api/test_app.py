@@ -1,4 +1,5 @@
 import importlib
+import base64
 import json
 import logging
 from pathlib import Path
@@ -92,6 +93,11 @@ def _seed_config(db_path: Path, config_json: str) -> None:
     )
 
 
+def _basic_auth_headers(username: str, password: str) -> dict[str, str]:
+    token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    return {"Authorization": f"Basic {token}"}
+
+
 def test_run_config_from_json_path(tmp_path: Path) -> None:
     config = RunConfig.from_json_path(_write_config(tmp_path))
 
@@ -179,6 +185,110 @@ def test_put_config_rejects_invalid_config(tmp_path: Path, monkeypatch: MonkeyPa
 
     assert response.status_code == 400
     assert response.json()["detail"].startswith("Invalid config:")
+
+
+def test_ui_requires_basic_auth(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    db_path = tmp_path / "app.db"
+    _seed_config(db_path, _config_json())
+    monkeypatch.setenv(SQLITE_PATH_ENV_VAR, str(db_path))
+    monkeypatch.setenv("VID_ANALYSER_STORAGE_PROVIDER", "local")
+    monkeypatch.setenv("VID_ANALYSER_STORAGE_ROOT", str(tmp_path / "storage"))
+    monkeypatch.setenv("UI_BASIC_AUTH_USER", "admin")
+    monkeypatch.setenv("UI_BASIC_AUTH_PASSWORD", "secret")
+
+    with TestClient(app) as client:
+        response = client.get("/ui/executions")
+
+    assert response.status_code == 401
+
+
+def test_ui_execution_pages_and_video(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    db_path = tmp_path / "app.db"
+    _seed_config(db_path, _config_json())
+    storage_root = tmp_path / "storage"
+    video_path = storage_root / "videos" / "exec-1" / "clip.mp4"
+    video_path.parent.mkdir(parents=True, exist_ok=True)
+    video_path.write_bytes(b"video-bytes")
+    monkeypatch.setenv(SQLITE_PATH_ENV_VAR, str(db_path))
+    monkeypatch.setenv("VID_ANALYSER_STORAGE_PROVIDER", "local")
+    monkeypatch.setenv("VID_ANALYSER_STORAGE_ROOT", str(storage_root))
+    monkeypatch.setenv("UI_BASIC_AUTH_USER", "admin")
+    monkeypatch.setenv("UI_BASIC_AUTH_PASSWORD", "secret")
+
+    with TestClient(app) as client:
+        config_record = client.app.state.config_repository.get_latest_config()
+        assert config_record is not None
+        client.app.state.execution_repository.create_execution(
+            execution_id="exec-1",
+            created_at="2026-03-16T10:00:00Z",
+            updated_at="2026-03-16T10:00:00Z",
+            status=api_module.ExecutionStatus.ANALYSED,
+            source="eufy-bridge",
+            event_metadata={"foo": "bar"},
+            input_video_filename="clip.mp4",
+            input_video_content_type="video/mp4",
+            input_video_size_bytes=10,
+            device_serial_number="device-1",
+            station_serial_number="station-1",
+            event_start_time="2026-03-16T09:59:00Z",
+            event_end_time="2026-03-16T10:00:00Z",
+            video_upload_status=api_module.VideoUploadStatus.STORED,
+            notification_status=api_module.NotificationStatus.SENT,
+            config_version_id=config_record.id,
+        )
+        client.app.state.execution_repository.update_execution(
+            "exec-1",
+            updated_at="2026-03-16T10:01:00Z",
+            analysis_result_json={"message_for_user": "Hello from the UI test"},
+            video_storage_provider="local",
+            video_storage_path="videos/exec-1/clip.mp4",
+        )
+
+        headers = _basic_auth_headers("admin", "secret")
+        list_response = client.get("/ui/executions", headers=headers)
+        detail_response = client.get("/ui/executions/exec-1", headers=headers)
+        video_response = client.get("/ui/executions/exec-1/video", headers=headers)
+
+    assert list_response.status_code == 200
+    assert "clip.mp4" in list_response.text
+    assert detail_response.status_code == 200
+    assert "Hello from the UI test" in detail_response.text
+    assert video_response.status_code == 200
+    assert video_response.content == b"video-bytes"
+
+
+def test_ui_config_page_can_update_config(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    db_path = tmp_path / "app.db"
+    _seed_config(db_path, _config_json())
+    monkeypatch.setenv(SQLITE_PATH_ENV_VAR, str(db_path))
+    monkeypatch.setenv("VID_ANALYSER_STORAGE_PROVIDER", "local")
+    monkeypatch.setenv("VID_ANALYSER_STORAGE_ROOT", str(tmp_path / "storage"))
+    monkeypatch.setenv("UI_BASIC_AUTH_USER", "admin")
+    monkeypatch.setenv("UI_BASIC_AUTH_PASSWORD", "secret")
+
+    new_config = json.dumps(
+        {
+            "provider": {"kind": "gemini", "model": "gemini-3-flash-preview"},
+            "overlay_zones": [],
+            "enable_person_id": False,
+            "user_prompt": "updated from ui",
+        }
+    )
+
+    with TestClient(app) as client:
+        headers = _basic_auth_headers("admin", "secret")
+        response = client.post(
+            "/ui/config",
+            headers=headers,
+            data={"config_json": new_config},
+            follow_redirects=True,
+        )
+        latest = client.app.state.config_repository.get_latest_config()
+
+    assert response.status_code == 200
+    assert "Config saved." in response.text
+    assert latest is not None
+    assert json.loads(latest.config_json)["user_prompt"] == "updated from ui"
 
 
 def test_analyse_video_calls_run_and_cleans_up(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
