@@ -24,6 +24,11 @@ variable "ssh_cidr" {
   type = string
 }
 
+variable "app_port" {
+  type    = number
+  default = 8000
+}
+
 variable "app_dir" {
   type    = string
   default = "/opt/argusai"

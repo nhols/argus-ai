@@ -7,6 +7,7 @@ module "droplet" {
   image               = var.image
   ssh_key_fingerprint = var.ssh_key_fingerprint
   ssh_cidr            = var.ssh_cidr
+  app_port            = var.app_port
   app_dir             = var.app_dir
   user_data_template  = "${path.module}/../../scripts/bootstrap.sh.tftpl"
   tags                = var.tags
