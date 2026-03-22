@@ -1,231 +1,205 @@
+`ArgusAI` is named after Argus Panoptes, the many-eyed watchman of Greek mythology.
+
 # ArgusAI
 
-Eufy doorbell processing stack. Monitors a Eufy doorbell for motion/ring events, downloads recordings from the homebase, converts them to MP4, and sends them to the FastAPI analyser service.
+ArgusAI ingests Eufy doorbell events, downloads the corresponding recordings from the HomeBase, analyses each clip with an LLM-backed pipeline, stores execution history, and optionally sends a Telegram notification with the video.
 
-## Architecture
+## High-Level Architecture
 
+```text
+┌────────────────────┐
+│ Eufy Cloud/HomeBase│
+└─────────┬──────────┘
+          │
+          ▼
+┌────────────────────┐
+│ eufy-ws            │  Community websocket bridge to the Eufy ecosystem
+│ (Docker, port 3000)│
+└─────────┬──────────┘
+          │ internal websocket
+          ▼
+┌────────────────────┐
+│ eufy-bridge        │  Node service that listens for events, polls for
+│ (Docker, Node.js)  │  recordings, downloads audio/video, muxes to MP4,
+│                    │  and forwards clips to the analyser API
+└──────┬───────┬─────┘
+       │       │
+       │       └──────────────► local captcha UI on `:8080`
+       │
+       ▼
+┌────────────────────┐
+│ vid-analyser-api   │  FastAPI service that validates uploads, enriches
+│ (Docker, port 8000)│  prompts, runs Gemini analysis, stores execution
+│                    │  state, and sends notifications
+└──────┬───────┬─────┘
+       │       │
+       │       └──────────────► Telegram notifications
+       │
+       ├──────────────────────► SQLite (`executions`, `config_versions`)
+       └──────────────────────► Local storage or S3 for retained videos
 ```
-┌──────────────┐     ┌──────────────────┐     ┌──────────────┐     ┌──────────────────┐
-│  Eufy Cloud  │◄────│    eufy-ws       │◄────│  eufy-bridge │────►│ vid-analyser-api │
-│  + Homebase  │     │  (WS server)     │     │  (Node.js)   │     │    (FastAPI)     │
-└──────────────┘     └──────────────────┘     └──────┬───────┘     └──────────────────┘
-                       port 3000 (internal)          │ :8080
-                                                     │ (captcha UI)
-                                                ┌────┴────────┐
-                                                │ local_files/│
-                                                │ (tmp media) │
-                                                └─────────────┘
-```
 
-### Services
+### Runtime flow
 
-| Service | Description |
+1. `eufy-ws` maintains the connection to the Eufy ecosystem and exposes a websocket API inside Docker.
+2. `eufy-bridge` listens for motion, person, and ring events, then uses `station.database_query_by_date` with exponential backoff to wait for the recording to appear.
+3. Once a clip is available, the bridge downloads raw video and audio chunks, muxes them with `ffmpeg`, and posts the finished MP4 to `POST /analyse-video`.
+4. `vid-analyser-api` creates an execution record in SQLite, loads the latest stored run config, and builds the final system and user prompts.
+5. The analysis pipeline can add overlay zones, optionally attempt person identification, and then sends the video plus prompts to Gemini.
+6. The API stores the analysis result, stores the clip via the configured storage provider, optionally sends a Telegram notification, and exposes the history through the built-in UI.
+
+### Main components
+
+| Path | Role |
 |---|---|
-| **eufy-ws** | [eufy-security-ws](https://github.com/bropat/eufy-security-ws) built from `develop` branches (both WS server and [eufy-security-client](https://github.com/bropat/eufy-security-client)). Exposes the Eufy API over WebSocket on port 3000 (internal only). |
-| **eufy-bridge** | Node.js app that connects to eufy-ws, listens for doorbell events, downloads recordings with audio, converts to MP4 via ffmpeg, and POSTs them to the FastAPI analyser. Also runs a captcha HTTP server on port 8080. |
-| **vid-analyser-api** | FastAPI app that analyses uploaded clips. |
+| `eufy-ws/` | Docker build for the websocket server that talks to Eufy. The image is built from upstream `develop` branches in `eufy-ws/Dockerfile`. |
+| `bridge/` | Node.js bridge service. `bridge/index.js` wires together the websocket client, polling, download manager, and captcha server. |
+| `vid-analyser/src/vid_analyser/api/` | FastAPI ingestion API and admin UI. The main entry point is `vid_analyser/api/app.py`. |
+| `vid-analyser/src/vid_analyser/pipeline/` | Video analysis pipeline orchestration. `pipeline/run.py` controls overlay enrichment, optional person ID, and LLM dispatch. |
+| `vid-analyser/src/vid_analyser/prompting.py` | Prompt templating, including `{{time}}`, `{{bookings}}`, and `{{previous_messages}}` expansion. |
+| `vid-analyser/src/vid_analyser/db/` | SQLite schema and repositories for executions and config versions. |
+| `vid-analyser/src/vid_analyser/storage/` | Local or S3-backed clip retention after analysis. |
+| `vid-analyser/src/vid_analyser/ui/` | Built-in admin pages for executions and config management. |
+| `vid-analyser/config/` | Example persisted run configs. `run_config_v3.json` is the most complete current example. |
+| `scripts/` | Prompt text used by local scripts and evals, including `scripts/sys_prompt.md` and `scripts/sys_prompt_n8n.md`. |
+| `infra/` | Terraform files and helper scripts for the DigitalOcean deployment path. |
 
-### Bridge internals
+### Configuration model
 
-The bridge (`bridge/`) is split into modules:
+The analyser has two layers of configuration:
 
-| Module | Purpose |
-|---|---|
-| `index.js` | Entry point — wires everything together |
-| `src/config.js` | Environment variables and constants |
-| `src/ws-client.js` | WebSocket client with automatic reconnection and exponential backoff |
-| `src/query-poller.js` | Polls `database_query_by_date` with exponential backoff (5s → 10s → 20s → 40s → 80s) until new recordings appear |
-| `src/download-manager.js` | Serial download queue, collects video + audio chunks per device, muxes with ffmpeg, sends them to the FastAPI API |
-| `src/event-handlers.js` | Message dispatcher → named handler functions |
-| `src/captcha-server.js` | HTTP server for captcha rendering and submission |
+- Runtime environment controls service wiring, secrets, storage backends, auth, and API behaviour.
+- Persisted run config controls the actual analysis behaviour: provider model, overlay zones, prompts, Telegram chat ID, and optional analysis features.
 
-## Setup
+The persisted run config lives in SQLite in the `config_versions` table and is loaded on startup from `vid-analyser/src/vid_analyser/api/app.py`. Example JSON files live in `vid-analyser/config/`, and the built-in UI exposes `/ui/config` for editing the active config.
+
+## Local Development
 
 ### Prerequisites
 
-- Docker and Docker Compose
+- Docker with Docker Compose v2
+- `make`
+- `uv` and Python 3.13 if you want to run the analyser or eval tooling outside Docker
+- `terraform` if you want to work on the DigitalOcean deployment
 
-### DigitalOcean droplet setup
-
-```sh
-# Update package index
-sudo apt update
-
-# Install required tools
-# - make: build automation
-# - docker.io: Docker engine
-# - docker-compose-v2: Docker Compose (v2 plugin)
-sudo apt install -y make docker.io docker-compose-v2
-
-# Enable Docker to start on boot
-sudo systemctl enable docker
-sudo systemctl start docker
-
-# Allow current user to run Docker without sudo
-sudo usermod -aG docker $USER
-
-# IMPORTANT:
-# Log out and log back in (or reboot) for the docker group change to take effect
-```
-
-### Environment
-
-Copy `.env.example` (or create `.env`) with:
-
-```env
-EUFY_USERNAME=your-eufy-email@example.com
-EUFY_PASSWORD=your-eufy-password
-EUFY_COUNTRY=GB
-
-DOORBELL_SN=T8213PXXXXXXXXXX
-HOMEBASE_SN=T8030TXXXXXXXXXX
-
-VID_ANALYSER_API_URL=http://vid-analyser-api:8000/analyse-video
-VID_ANALYSER_API_KEY=change-me
-GEMINI_API_KEY=change-me
-VID_ANALYSER_STORAGE_PROVIDER=local
-VID_ANALYSER_STORAGE_ROOT=/app/data/storage
-VID_ANALYSER_SQLITE_PATH=/app/data/vid_analyser.db
-ENABLE_API_DOCS=false
-TELEGRAM_BOT_TOKEN=change-me
-UI_BASIC_AUTH_USER=admin
-UI_BASIC_AUTH_PASSWORD=change-me
-
-# Only needed if your prompt template uses {{bookings}}
-AWS_ACCESS_KEY_ID=
-AWS_SECRET_ACCESS_KEY=
-AWS_DEFAULT_REGION=eu-west-2
-```
-
-The analyser starts even if no config exists yet. Configure it by calling `PUT /config` after startup. `/config` is protected with the same HTTP basic auth credentials as the UI:
+### First-time setup
 
 ```sh
-curl -X PUT http://localhost:8000/config \
-  -u admin:change-me \
-  -H 'Content-Type: application/json' \
-  --data-binary @<(jq -n --argfile cfg vid-analyser/config/run_config_v3.json '{config: $cfg, source: "manual"}')
+cp .env.example .env
+docker compose build
+make start
 ```
 
-If the active prompt template includes `{{bookings}}`, the API will load `s3://jp-bookings/bookings.json` using standard AWS credentials from the environment. In Docker Compose that means setting `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and usually `AWS_DEFAULT_REGION` in `.env`.
+The stack can start before the analyser has an active run config, but `/analyse-video` will return `503` until a config is loaded. Start from `vid-analyser/config/run_config_v3.json` and either:
 
-### Admin UI
+- load it through the UI at `http://localhost:8000/ui/config`, or
+- send it to `PUT /config` inside the API's expected wrapper payload, `{ "config": ... }`.
 
-The API also exposes a minimal admin UI directly from FastAPI on port `8000`:
+The UI and `GET/PUT /config` are protected with `UI_BASIC_AUTH_USER` and `UI_BASIC_AUTH_PASSWORD`.
 
-- `/ui/executions`
-- `/ui/executions/<execution-id>`
-- `/ui/config`
+Useful local endpoints:
 
-These routes are protected with HTTP basic auth using `UI_BASIC_AUTH_USER` and `UI_BASIC_AUTH_PASSWORD`.
+- `http://localhost:8000/ui/executions`
+- `http://localhost:8000/ui/config`
+- `http://localhost:8000/docs` when `ENABLE_API_DOCS=true`
+- `http://localhost:8080/captcha`
 
-Machine-to-machine clip ingestion is separate:
+### Key commands
 
-- `eufy-bridge` sends `X-API-Key: <VID_ANALYSER_API_KEY>`
-- `POST /analyse-video` requires that API key
-
-For production/public deployment, set `ENABLE_API_DOCS=false` to disable `/docs`, `/redoc`, and `/openapi.json`. For local development you can set it to `true`.
-
-### Run
-
-```sh
-make start    # docker compose up -d
-make logs     # tail eufy-bridge logs
-make stop     # docker compose down
-make rebuild  # rebuild & restart just the bridge
-```
-
-## Captcha handling
-
-Eufy occasionally requires a captcha during login. When this happens:
-
-1. The bridge logs a banner:
-   ```
-   🔐 ════════════════════════════════════════════
-   🔐  CAPTCHA REQUIRED
-   🔐  Open http://localhost:8080/captcha to view & solve
-   🔐 ════════════════════════════════════════════
-   ```
-
-2. **Option A — Browser (recommended)**
-
-   Open `http://localhost:8080/captcha` in your browser. The page renders the captcha image with a text input and submit button. If accessing remotely, use an SSH tunnel:
-   ```sh
-   ssh -L 8080:localhost:8080 your-vm
-   ```
-   Then open `http://localhost:8080/captcha` locally.
-
-3. **Option B — Make target**
-   ```sh
-   make captcha code=ABCD
-   ```
-
-4. **Option C — curl**
-   ```sh
-   curl -X POST "http://localhost:8080/captcha?code=ABCD"
-   ```
-
-The `/health` endpoint returns whether a captcha is currently pending:
-```sh
-curl http://localhost:8080/health
-# {"status":"ok","captchaPending":false}
-```
-
-## Cutting a release
-
-This project runs from source via `docker compose build`. To deploy or update:
-
-1. **Commit your changes:**
-   ```sh
-   git add -A && git commit -m "description of changes"
-   ```
-
-2. **Tag the release:**
-   ```sh
-   git tag v1.0.0
-   git push origin master --tags
-   ```
-
-3. **Deploy from git using the helper script:**
-   ```sh
-   infra/scripts/deploy.sh \
-     --host <server-ip> \
-     --user root \
-     --env-file .env \
-     --identity ~/.ssh/<your-key>
-   ```
-
-   By default this deploys:
-   - the current repo's `origin` remote
-   - the current local `HEAD` commit
-
-   You can override that with:
-   ```sh
-   infra/scripts/deploy.sh \
-     --host <server-ip> \
-     --user root \
-     --env-file .env \
-     --identity ~/.ssh/<your-key> \
-     --repo <git-url> \
-     --ref <branch-tag-or-commit>
-   ```
-
-4. **To update the upstream eufy-security-ws / eufy-security-client** (e.g. to pick up new develop commits):
-   ```sh
-   docker compose build --no-cache eufy-ws
-   docker compose up -d eufy-ws
-   ```
-   This re-clones both repos at their latest `develop` HEAD.
-
-### What gets versioned
-
-| What | Where | Versioning |
+| Command | Where | What it does |
 |---|---|---|
-| Bridge code | `bridge/` | Git tags on this repo |
-| eufy-security-ws | `eufy-ws/Dockerfile` | Pinned to `develop` branch; rebuild with `--no-cache` to update |
-| vid-analyser-api | `docker-compose.yml` | Built from `vid-analyser/Dockerfile.api` |
+| `make start` | repo root | Starts the Docker Compose stack in the background. |
+| `make logs` | repo root | Follows `eufy-bridge` logs. |
+| `docker compose logs -f vid-analyser-api` | repo root | Follows the FastAPI analyser logs. |
+| `make captcha code=ABCD` | repo root | Submits a pending Eufy captcha to the bridge's local captcha server. |
+| `make rebuild` | repo root | Rebuilds and restarts only `eufy-bridge`. |
+| `make stop` | repo root | Stops the Docker Compose stack. |
 
-## TODO
+When running the analyser directly, the `vid-analyser/Makefile` also lets you override make variables such as `STORAGE_PROVIDER`, `STORAGE_ROOT`, `SQLITE_PATH`, and `PORT`.
 
-- Add Telegram webhook support for inbound bot updates.
-- If Telegram webhooks are added, expose a public HTTPS endpoint for FastAPI and point Telegram at a real domain-backed webhook URL.
-- Add scheduled task support using APScheduler with schedules and run history stored in SQLite.
+## Environment Variables
+
+Use the repo-root `.env.example` as the canonical template for the Docker Compose stack. Docker Compose reads the repo-root `.env`, while direct `uv` runs inside `vid-analyser/` can also read `vid-analyser/.env` through `python-dotenv`.
+
+### Core stack variables
+
+| Variable | Purpose | Where to find it |
+|---|---|---|
+| `EUFY_USERNAME` | Eufy account email for the websocket bridge container. | `.env.example`, `docker-compose.yml` under `eufy-ws.environment` |
+| `EUFY_PASSWORD` | Eufy account password for the websocket bridge container. | `.env.example`, `docker-compose.yml` under `eufy-ws.environment` |
+| `EUFY_COUNTRY` | Eufy account country code passed to `eufy-ws`. | `.env.example`, `docker-compose.yml` under `eufy-ws.environment` |
+| `DOORBELL_SN` | Device serial number that `eufy-bridge` filters on when deciding which events to process. | `.env.example`, `docker-compose.yml`, `bridge/src/config.js`, `bridge/src/event-handlers.js`, `bridge/src/query-poller.js` |
+| `HOMEBASE_SN` | HomeBase serial number used for database queries and metadata sent upstream. | `.env.example`, `docker-compose.yml`, `bridge/src/config.js`, `bridge/src/query-poller.js`, `bridge/src/download-manager.js` |
+| `VID_ANALYSER_API_URL` | URL that the bridge posts completed MP4 clips to. In Compose it should point at `/analyse-video` on the analyser service. | `.env.example`, `docker-compose.yml`, `bridge/src/config.js`, `bridge/src/download-manager.js` |
+| `VID_ANALYSER_API_KEY` | Shared secret between `eufy-bridge` and `vid-analyser-api` for `X-API-Key` authentication. | `.env.example`, `docker-compose.yml`, `bridge/src/config.js`, `vid-analyser/src/vid_analyser/auth.py` |
+| `GEMINI_API_KEY` | Gemini credential consumed by the Google SDK used in the analyser pipeline. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/llm/gemini.py`, `vid-analyser/.env` for local direct runs |
+| `VID_ANALYSER_STORAGE_PROVIDER` | Storage backend for retained videos. Supported values today are `local` and `s3`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/storage/__init__.py` |
+| `VID_ANALYSER_STORAGE_ROOT` | Root directory for retained videos when `VID_ANALYSER_STORAGE_PROVIDER=local`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/storage/__init__.py` |
+| `VID_ANALYSER_SQLITE_PATH` | SQLite file path used for executions and config versions. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py`, `vid-analyser/Makefile` |
+| `ENABLE_API_DOCS` | Enables or disables `/docs`, `/redoc`, and `/openapi.json`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py` |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token used when notifications are enabled in the persisted run config. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py`, `vid-analyser/src/vid_analyser/notifications/telegram.py` |
+| `UI_BASIC_AUTH_USER` | Username for the admin UI and `GET/PUT /config`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/auth.py` |
+| `UI_BASIC_AUTH_PASSWORD` | Password for the admin UI and `GET/PUT /config`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/auth.py` |
+| `AWS_ACCESS_KEY_ID` | AWS credential used by `boto3` when prompt templates fetch `{{bookings}}` from S3 and when video retention uses S3 storage. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py`, `vid-analyser/src/vid_analyser/prompting.py`, `vid-analyser/src/vid_analyser/storage/s3.py` |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret paired with `AWS_ACCESS_KEY_ID` for the same S3 access paths. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py`, `vid-analyser/src/vid_analyser/prompting.py`, `vid-analyser/src/vid_analyser/storage/s3.py` |
+| `AWS_DEFAULT_REGION` | Default AWS region used by `boto3` when S3-backed prompt data or S3 video storage is enabled. | `.env.example`, `docker-compose.yml`, used implicitly by `boto3` in `vid-analyser/src/vid_analyser/api/app.py` and `vid-analyser/src/vid_analyser/storage/s3.py` |
+
+### Optional or non-default variables
+
+| Variable | Purpose | Where to find it |
+|---|---|---|
+| `EUFY_WS_URL` | Manual override for the websocket endpoint that the bridge connects to. In Docker Compose it is fixed to `ws://eufy-ws:3000`. | `bridge/src/config.js`, `docker-compose.yml` |
+| `OUTPUT_DIR` | Manual override for where `eufy-bridge` writes temporary raw streams and MP4 files before upload. | `bridge/src/config.js` |
+| `CAPTCHA_PORT` | Port for the bridge's local captcha UI and health check. Compose sets it to `8080`. | `bridge/src/captcha-server.js`, `docker-compose.yml`, `Makefile` |
+| `VID_ANALYSER_VIDEO_S3_BUCKET` | Required when `VID_ANALYSER_STORAGE_PROVIDER=s3`; names the bucket used for retained analysed videos. | `vid-analyser/src/vid_analyser/storage/__init__.py`, `vid-analyser/src/vid_analyser/storage/s3.py` |
+| `LOCAL_STORE_DIR` | Local eval-data root used by the Streamlit eval tools, not by the production API path. | `vid-analyser/.env`, `vid-analyser/src/vid_analyser/evals/ui/labeler/app.py`, `vid-analyser/src/vid_analyser/evals/ui/results/app.py` |
+
+## Terraform And DigitalOcean
+
+The Terraform under `infra/` is intentionally small. It provisions one single-tenant DigitalOcean droplet, attaches a firewall, bootstraps Docker on first boot, and then relies on a shell deploy script to pull the repo and run Docker Compose on the box.
+
+### What the Terraform creates
+
+- one DigitalOcean droplet
+- one DigitalOcean firewall
+- public SSH access restricted by the configured CIDR
+- public access to the analyser app port
+- bootstrap-time installation of Docker, the Compose plugin, Git, and the expected app directories
+
+It does not currently manage DNS, object storage, backups, a load balancer, or managed databases.
+
+### Terraform file map
+
+| File | Role |
+|---|---|
+| `infra/environments/example/versions.tf` | Pins Terraform and the DigitalOcean provider, and configures the provider with `var.do_token`. |
+| `infra/environments/example/variables.tf` | Defines environment-level inputs such as region, droplet size, image, SSH CIDR, and app directory. |
+| `infra/environments/example/terraform.tfvars.example` | Example values for a concrete deployment. Copy this to `terraform.tfvars` and fill in real values. |
+| `infra/environments/example/main.tf` | Wires the environment variables into the reusable `modules/droplet` module. |
+| `infra/environments/example/outputs.tf` | Exposes the droplet ID and public IPv4 after `terraform apply`. |
+| `infra/modules/droplet/main.tf` | Creates the droplet and firewall, and injects the bootstrap template as cloud-init user data. |
+| `infra/modules/droplet/variables.tf` | Defines the module interface consumed by the example environment. |
+| `infra/modules/droplet/outputs.tf` | Returns the created droplet ID and IPv4. |
+| `infra/scripts/bootstrap.sh.tftpl` | Cloud-init shell template that installs Docker and creates `/opt/argusai` plus the expected `local_files` directories. |
+| `infra/scripts/deploy.sh` | Post-provision deploy helper that checks out a git ref on the droplet, copies `.env`, and runs `docker compose up -d --build`. |
+
+### Typical DigitalOcean deploy flow
+
+```sh
+cd infra/environments/example
+cp terraform.tfvars.example terraform.tfvars
+terraform init
+terraform apply
+```
+
+After the droplet exists, deploy the app from your local checkout:
+
+```sh
+infra/scripts/deploy.sh \
+  --host <droplet-ip> \
+  --user root \
+  --env-file .env \
+  --identity ~/.ssh/<your-key>
+```
+
+By default the deploy script uses the current repo's `origin` remote and the current local `HEAD` commit. You can override both with `--repo` and `--ref`.
