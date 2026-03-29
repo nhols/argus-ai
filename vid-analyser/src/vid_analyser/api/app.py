@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sys
@@ -12,6 +13,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from vid_analyser.auth import require_ui_basic_auth, require_vid_analyser_api_key
+from vid_analyser.db import ConfigUpdateRepository, SentNotificationRepository, VidAnalysisRepository, init_database
 from vid_analyser.pipeline.run import RunConfig, run
 from vid_analyser.storage import build_storage_provider
 
@@ -66,10 +68,21 @@ def _is_api_docs_enabled() -> bool:
 async def lifespan(app: FastAPI):
     configure_logging()
     db_path = os.getenv(SQLITE_PATH_ENV_VAR, DEFAULT_SQLITE_PATH)
-    # TODO init db
+    session_factory = await init_database(db_path)
+    app.state.config_repository = ConfigUpdateRepository(session_factory)
+    app.state.notification_repository = SentNotificationRepository(session_factory)
+    app.state.analysis_repository = VidAnalysisRepository(session_factory)
     app.state.storage_provider = build_storage_provider()
-    app.state.run_config = RunConfig()
-    if app.state.run_config is not None:
+    latest_config = await app.state.config_repository.get_latest()
+    if latest_config is None:
+        app.state.run_config = None
+        app.state.run_config_document = None
+        app.state.run_config_version_id = None
+        logger.info("Config not loaded")
+    else:
+        app.state.run_config_document = json.loads(latest_config.config_json)
+        app.state.run_config_version_id = latest_config.id
+        app.state.run_config = RunConfig.model_validate(app.state.run_config_document)
         logger.info("Loaded run config from SQLite config_versions table")
     yield
 
@@ -96,7 +109,12 @@ async def get_config():
 @app.put("/config", dependencies=[Depends(require_ui_basic_auth)])
 async def update_config(payload: ConfigUpdateRequest):
     try:
-        ...  # TODO
+        run_config = RunConfig.model_validate(payload.config)
+        record = await app.state.config_repository.insert(config=payload.config, source=payload.source)
+        app.state.run_config = run_config
+        app.state.run_config_document = payload.config
+        app.state.run_config_version_id = record.id
+        return {"id": record.id, "config": payload.config}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid config: {exc}") from None
 
@@ -136,7 +154,11 @@ async def analyse_video(
 
         logger.info("Starting analysis for filename=%s", video.filename)
         response = await run(
-            video_path=temp_path, config=app.state.run_config, content_type=video.content_type or "video/mp4"
+            video_path=temp_path,
+            config=app.state.run_config,
+            content_type=video.content_type or "video/mp4",
+            analysis_repository=app.state.analysis_repository,
+            notification_repository=app.state.notification_repository,
         )
 
         duration_ms = (time.perf_counter() - start) * 1000

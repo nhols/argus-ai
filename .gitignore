@@ -46,3 +46,6 @@ models/
 # data
 *.jpg
 *.mp4
+
+# config
+vid-analyser/config/*

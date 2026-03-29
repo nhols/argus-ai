@@ -40,6 +40,7 @@ class Deps:
     video_path: Path
     system_prompt: str | None
     video_start_time: datetime
+    overlay_zones_descriptions: str | None
 
 
 vid_analyser_agent = Agent(model="google-gla:gemini-3.1-flash-lite-preview", output_type=VidAnalysis, deps_type=Deps)
@@ -53,3 +54,12 @@ async def set_timestamps(ctx: RunContext[Deps]):
 @vid_analyser_agent.instructions
 async def get_instructions(ctx: RunContext[Deps]) -> str:
     return ctx.deps.system_prompt or DEFAULT_SYS_PROMT
+
+
+@vid_analyser_agent.instructions
+async def get_overlay_info(ctx: RunContext[Deps]) -> str | None:
+    return (
+        f"The overlay zones have the following descriptions:\n{ctx.deps.overlay_zones_descriptions}"
+        if ctx.deps.overlay_zones_descriptions
+        else None
+    )
