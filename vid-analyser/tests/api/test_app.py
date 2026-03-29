@@ -115,6 +115,7 @@ def test_run_config_from_json_path(tmp_path: Path) -> None:
     assert config.provider.name == "gemini"
     assert config.overlay is None
     assert config.person_id is None
+    assert config.previous_messages_limit == 10
 
 
 def test_run_config_from_json_path_rejects_invalid_provider(tmp_path: Path) -> None:
@@ -495,6 +496,7 @@ def test_analyse_video_renders_prompt_tokens_lazily(tmp_path: Path, monkeypatch:
         db_path,
         _config_json(
             system_prompt="system from sqlite",
+            previous_messages_limit=2,
             user_prompt=(
                 "The clip was recorded at: {{time}}\n\n"
                 "Bookings:\n{{bookings}}\n\n"
@@ -619,6 +621,76 @@ def test_analyse_video_renders_prompt_tokens_lazily(tmp_path: Path, monkeypatch:
     assert "First prior notification." in str(captured["user_prompt"])
     assert "Second prior notification." in str(captured["user_prompt"])
     assert "This should not appear." not in str(captured["user_prompt"])
+
+
+def test_analyse_video_omits_previous_messages_when_limit_is_zero(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    db_path = tmp_path / "app.db"
+    _seed_config(
+        db_path,
+        _config_json(
+            system_prompt="system from sqlite",
+            previous_messages_limit=0,
+            user_prompt="Previous assistant notifications:\n{{previous_messages}}",
+        ),
+    )
+    monkeypatch.setenv(SQLITE_PATH_ENV_VAR, str(db_path))
+    monkeypatch.setenv("VID_ANALYSER_STORAGE_PROVIDER", "local")
+    monkeypatch.setenv("VID_ANALYSER_STORAGE_ROOT", str(tmp_path / "storage"))
+    monkeypatch.delenv(TELEGRAM_BOT_TOKEN_ENV_VAR, raising=False)
+    _configure_auth_env(monkeypatch)
+
+    response_model = AnalyseResponse(
+        ir_mode="unknown",
+        parking_spot_status="unknown",
+        number_plate=None,
+        events_description="none",
+        message_for_user="Current notification.",
+        send_notification=False,
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_run(video_path: str | Path, user_prompt: str, system_prompt: str, config: RunConfig):
+        captured["user_prompt"] = user_prompt
+        return response_model
+
+    monkeypatch.setattr(api_module, "run", fake_run)
+
+    with TestClient(app) as client:
+        repo = client.app.state.execution_repository
+        config_version_id = client.app.state.run_config_version_id
+        repo.create_execution(
+            execution_id="older-1",
+            created_at="2026-03-15T09:00:00Z",
+            updated_at="2026-03-15T09:00:00Z",
+            status=api_module.ExecutionStatus.ANALYSED,
+            source="eufy-bridge",
+            event_metadata={},
+            input_video_filename="old-1.mp4",
+            input_video_content_type="video/mp4",
+            input_video_size_bytes=1,
+            device_serial_number="device-1",
+            station_serial_number="station-1",
+            event_start_time="2026-03-15T09:00:00Z",
+            event_end_time="2026-03-15T09:00:10Z",
+            video_upload_status=api_module.VideoUploadStatus.STORED,
+            notification_status=api_module.NotificationStatus.SENT,
+            config_version_id=config_version_id,
+        )
+        repo.update_execution(
+            "older-1",
+            updated_at="2026-03-15T09:01:00Z",
+            analysis_result_json={"message_for_user": "First prior notification."},
+        )
+
+        response = client.post(
+            "/analyse-video",
+            headers=_api_key_headers(),
+            files={"video": ("clip.mp4", b"video-bytes", "video/mp4")},
+            data={"start_time": "2026-03-15T10:30:00Z"},
+        )
+
+    assert response.status_code == 200
+    assert str(captured["user_prompt"]).strip() == "Previous assistant notifications:\nNone."
 
 
 def test_analyse_video_does_not_fetch_optional_context_when_tokens_absent(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:

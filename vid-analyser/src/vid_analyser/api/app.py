@@ -118,12 +118,14 @@ def _build_execution_context(app: FastAPI, *, video: UploadFile, metadata: Analy
             template=configured_user_prompt,
             load_json_document=_load_json_document_from_s3,
             execution_repository=app.state.execution_repository,
+            previous_messages_limit=app.state.run_config.previous_messages_limit,
         ),
         system_prompt=build_system_prompt(
             metadata=metadata,
             template=configured_system_prompt,
             load_json_document=_load_json_document_from_s3,
             execution_repository=app.state.execution_repository,
+            previous_messages_limit=app.state.run_config.previous_messages_limit,
         ),
     )
 

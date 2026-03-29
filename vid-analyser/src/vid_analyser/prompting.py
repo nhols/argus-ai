@@ -10,7 +10,6 @@ BOOKINGS_S3_KEY = "bookings.json"
 TIME_TOKEN = "{{time}}"
 BOOKINGS_TOKEN = "{{bookings}}"
 PREVIOUS_MESSAGES_TOKEN = "{{previous_messages}}"
-PREVIOUS_MESSAGES_LIMIT = 10
 
 
 def build_user_prompt(
@@ -19,6 +18,7 @@ def build_user_prompt(
     template: str,
     load_json_document: Callable[[str, str], dict[str, Any]],
     execution_repository: ExecutionRepository,
+    previous_messages_limit: int = 10,
 ) -> str:
     return _build_prompt(
         metadata=metadata,
@@ -26,6 +26,7 @@ def build_user_prompt(
         append_metadata_when_static=True,
         load_json_document=load_json_document,
         execution_repository=execution_repository,
+        previous_messages_limit=previous_messages_limit,
     )
 
 
@@ -35,6 +36,7 @@ def build_system_prompt(
     template: str,
     load_json_document: Callable[[str, str], dict[str, Any]],
     execution_repository: ExecutionRepository,
+    previous_messages_limit: int = 10,
 ) -> str:
     return _build_prompt(
         metadata=metadata,
@@ -42,6 +44,7 @@ def build_system_prompt(
         append_metadata_when_static=False,
         load_json_document=load_json_document,
         execution_repository=execution_repository,
+        previous_messages_limit=previous_messages_limit,
     )
 
 
@@ -52,6 +55,7 @@ def _build_prompt(
     append_metadata_when_static: bool,
     load_json_document: Callable[[str, str], dict[str, Any]],
     execution_repository: ExecutionRepository,
+    previous_messages_limit: int,
 ) -> str:
     has_time_token = TIME_TOKEN in template
     has_bookings_token = BOOKINGS_TOKEN in template
@@ -74,8 +78,11 @@ def _build_prompt(
         bookings_document = load_json_document(BOOKINGS_S3_BUCKET, BOOKINGS_S3_KEY)
         replacements[BOOKINGS_TOKEN] = _format_bookings_text(bookings_document)
     if has_previous_messages_token:
-        messages = execution_repository.get_recent_notification_messages(limit=PREVIOUS_MESSAGES_LIMIT)
-        replacements[PREVIOUS_MESSAGES_TOKEN] = _format_previous_messages_text(messages)
+        if previous_messages_limit > 0:
+            messages = execution_repository.get_recent_notification_messages(limit=previous_messages_limit)
+            replacements[PREVIOUS_MESSAGES_TOKEN] = _format_previous_messages_text(messages)
+        else:
+            replacements[PREVIOUS_MESSAGES_TOKEN] = "None."
 
     return _render_prompt_template(template, replacements)
 
