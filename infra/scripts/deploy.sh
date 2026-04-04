@@ -4,14 +4,14 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  deploy.sh --host <host> --user <user> --env-file <path> [options]
+  deploy.sh --host <host> --user <user> [options]
 
 Required:
   --host         Remote host or IP
   --user         SSH user
-  --env-file     Local .env file to copy
 
 Optional:
+  --env-file     Local env file to copy to remote .env (default: .env.prod)
   --app-dir      Remote app dir (default: /opt/argusai)
   --identity     SSH identity file
   --repo         Git repo URL (default: local origin remote)
@@ -21,7 +21,7 @@ EOF
 
 HOST=""
 USER_NAME=""
-ENV_FILE=""
+ENV_FILE=".env.prod"
 APP_DIR="/opt/argusai"
 IDENTITY_FILE=""
 REPO_URL=""
@@ -41,8 +41,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$HOST" || -z "$USER_NAME" || -z "$ENV_FILE" ]]; then
+if [[ -z "$HOST" || -z "$USER_NAME" ]]; then
   usage
+  exit 1
+fi
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "Env file not found: $ENV_FILE" >&2
   exit 1
 fi
 
