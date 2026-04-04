@@ -29,7 +29,7 @@ ArgusAI ingests Eufy doorbell events, downloads the corresponding recordings fro
        ▼
 ┌────────────────────┐
 │ vid-analyser-api   │  FastAPI service that validates uploads, enriches
-│ (Docker, port 8000)│  prompts, runs Gemini analysis, stores execution
+│ (Docker, port 8000)│  prompts, runs Google GenAI analysis, stores execution
 │                    │  state, and sends notifications
 └──────┬───────┬─────┘
        │       │
@@ -45,7 +45,7 @@ ArgusAI ingests Eufy doorbell events, downloads the corresponding recordings fro
 2. `eufy-bridge` listens for motion, person, and ring events, then uses `station.database_query_by_date` with exponential backoff to wait for the recording to appear.
 3. Once a clip is available, the bridge downloads raw video and audio chunks, muxes them with `ffmpeg`, and posts the finished MP4 to `POST /analyse-video`.
 4. `vid-analyser-api` creates an execution record in SQLite, loads the latest stored run config, and builds the final system and user prompts.
-5. The analysis pipeline can add overlay zones, optionally attempt person identification, and then sends the video plus prompts to Gemini.
+5. The analysis pipeline can add overlay zones, optionally attempt person identification, and then sends the video plus prompts to Google's Gemini models.
 6. The API stores the analysis result, stores the clip via the configured storage provider, optionally sends a Telegram notification, and exposes the history through the built-in UI.
 
 ### Main components
@@ -132,7 +132,7 @@ Use the repo-root `.env.example` as the canonical template for the Docker Compos
 | `HOMEBASE_SN` | HomeBase serial number used for database queries and metadata sent upstream. | `.env.example`, `docker-compose.yml`, `bridge/src/config.js`, `bridge/src/query-poller.js`, `bridge/src/download-manager.js` |
 | `VID_ANALYSER_API_URL` | URL that the bridge posts completed MP4 clips to. In Compose it should point at `/analyse-video` on the analyser service. | `.env.example`, `docker-compose.yml`, `bridge/src/config.js`, `bridge/src/download-manager.js` |
 | `VID_ANALYSER_API_KEY` | Shared secret between `eufy-bridge` and `vid-analyser-api` for `X-API-Key` authentication. | `.env.example`, `docker-compose.yml`, `bridge/src/config.js`, `vid-analyser/src/vid_analyser/auth.py` |
-| `GEMINI_API_KEY` | Gemini credential consumed by the Google SDK used in the analyser pipeline. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/llm/gemini.py`, `vid-analyser/.env` for local direct runs |
+| `GOOGLE_API_KEY` | Google GenAI credential consumed by the analyser pipeline through the Google provider. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/agent/retry.py`, `vid-analyser/.env` for local direct runs |
 | `VID_ANALYSER_STORAGE_PROVIDER` | Storage backend for retained videos. Supported values today are `local` and `s3`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/storage/__init__.py` |
 | `VID_ANALYSER_STORAGE_ROOT` | Root directory for retained videos when `VID_ANALYSER_STORAGE_PROVIDER=local`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/storage/__init__.py` |
 | `VID_ANALYSER_SQLITE_PATH` | SQLite file path used for executions and config versions. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py`, `vid-analyser/Makefile` |
