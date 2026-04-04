@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
+from vid_analyser.agent.retry import create_google_retry_model
 from vid_analyser.agent.utils import get_timestamps
 
 DEFAULT_SYS_PROMT = """
@@ -43,7 +44,11 @@ class Deps:
     overlay_zones_descriptions: str | None
 
 
-vid_analyser_agent = Agent(model="google-gla:gemini-3.1-flash-lite-preview", output_type=VidAnalysis, deps_type=Deps)
+vid_analyser_agent = Agent(
+    model=create_google_retry_model("gemini-3.1-flash-lite-preview"),
+    output_type=VidAnalysis,
+    deps_type=Deps,
+)
 
 
 @vid_analyser_agent.instructions

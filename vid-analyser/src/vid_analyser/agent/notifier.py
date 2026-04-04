@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, NonNegativeInt
 from pydantic_ai import Agent, RunContext
+from vid_analyser.agent.retry import create_google_retry_model
 from vid_analyser.agent.utils import get_timestamps
 from vid_analyser.bookings import format_bookings_prompt, load_bookings_json
 from vid_analyser.db import SentNotificationRepository
@@ -67,7 +68,7 @@ class NoNotification(BaseModel):
 
 
 notifier_agent = Agent(
-    model="google-gla:gemini-3.1-pro-preview",
+    model=create_google_retry_model("gemini-3.1-pro-preview"),
     deps_type=Deps,
     output_type=[send_notification, NoNotification],
 )
