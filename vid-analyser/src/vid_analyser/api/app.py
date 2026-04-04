@@ -13,9 +13,10 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from vid_analyser.auth import require_ui_basic_auth, require_vid_analyser_api_key
+from vid_analyser.config_schema import RunConfig
 from vid_analyser.db import ConfigUpdateRepository, SentNotificationRepository, VidAnalysisRepository, init_database
 from vid_analyser.api.ui import router as ui_router
-from vid_analyser.pipeline.run import RunConfig, run
+from vid_analyser.pipeline.run import run
 from vid_analyser.storage import build_storage_provider
 
 load_dotenv()

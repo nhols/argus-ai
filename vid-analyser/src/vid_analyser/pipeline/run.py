@@ -2,31 +2,17 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import BaseModel, Field
 from pydantic_ai import BinaryContent
 from vid_analyser.agent.notifier import Deps as NotifierDeps
 from vid_analyser.agent.notifier import NoNotification, notifier_agent
 from vid_analyser.agent.vid_analyser import Deps as VidAnalysisDeps
 from vid_analyser.agent.vid_analyser import vid_analyser_agent
+from vid_analyser.config_schema import RunConfig
 from vid_analyser.db import SentNotificationRepository, VidAnalysisRepository
 from vid_analyser.notifications.telegram import TelegramNotificationService
-from vid_analyser.overlay import ZoneDefinition, overlay_zones, zone_descriptions
+from vid_analyser.overlay import overlay_zones, zone_descriptions
 
 logger = logging.getLogger(__name__)
-
-
-class OverlayConfig(BaseModel):
-    zones: list[ZoneDefinition] = Field(default_factory=list)
-
-
-class RunConfig(BaseModel):
-    overlay: OverlayConfig | None = None
-    video_analyser_sys_prompt: str | None = None
-    notifier_sys_prompt: str | None = None
-    notifier_style: str | None = None
-    telegram_chat_id: str | None = None
-    previous_messages_limit: int = 10
-    get_bookings: bool = False
 
 
 async def run(
