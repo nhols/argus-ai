@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from httpx import AsyncClient, HTTPStatusError
+from httpx import AsyncClient, HTTPStatusError, Timeout
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
@@ -28,7 +28,9 @@ def create_retrying_client() -> AsyncClient:
         ),
         validate_response=should_retry_status,
     )
-    return AsyncClient(transport=transport)
+    # The Google GenAI API rejects manually supplied deadlines below 10s.
+    # httpx defaults to a 5s timeout, so set an explicit higher timeout here.
+    return AsyncClient(transport=transport, timeout=Timeout(60.0))
 
 
 def create_google_retry_model(model: str):
