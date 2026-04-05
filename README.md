@@ -181,7 +181,7 @@ It does not currently manage DNS, object storage, backups, a load balancer, or m
 | `infra/modules/droplet/variables.tf` | Defines the module interface consumed by the example environment. |
 | `infra/modules/droplet/outputs.tf` | Returns the created droplet ID and IPv4. |
 | `infra/scripts/bootstrap.sh.tftpl` | Cloud-init shell template that installs Docker and creates `/opt/argusai` plus the expected `local_files` directories. |
-| `infra/scripts/deploy.sh` | Post-provision deploy helper that checks out a git ref on the droplet, copies `.env`, and runs `docker compose up -d --build`. |
+| `infra/scripts/deploy.sh` | Post-provision deploy helper that waits for cloud-init, checks out a git ref on the droplet, copies `.env`, and runs `docker compose up -d --build`. |
 
 ### Typical DigitalOcean deploy flow
 

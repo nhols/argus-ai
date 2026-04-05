@@ -72,6 +72,9 @@ REMOTE="${USER_NAME}@${HOST}"
 
 ssh "${SSH_OPTS[@]}" "$REMOTE" "
   set -euo pipefail
+  if command -v cloud-init >/dev/null 2>&1; then
+    cloud-init status --wait
+  fi
   mkdir -p '${APP_DIR}'
   cd '${APP_DIR}'
   if [[ ! -d .git ]]; then
@@ -88,4 +91,15 @@ ssh "${SSH_OPTS[@]}" "$REMOTE" "
 "
 
 scp "${SSH_OPTS[@]}" "$ENV_FILE" "$REMOTE:${APP_DIR}/.env"
-ssh "${SSH_OPTS[@]}" "$REMOTE" "cd '${APP_DIR}' && docker compose up -d --build"
+ssh "${SSH_OPTS[@]}" "$REMOTE" "
+  set -euo pipefail
+  cd '${APP_DIR}'
+  if docker compose version >/dev/null 2>&1; then
+    docker compose up -d --build
+  elif command -v docker-compose >/dev/null 2>&1; then
+    docker-compose up -d --build
+  else
+    echo 'Docker Compose is not installed on the remote host.' >&2
+    exit 1
+  fi
+"
