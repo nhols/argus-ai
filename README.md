@@ -143,6 +143,7 @@ Use the repo-root `.env.example` as the canonical template for the Docker Compos
 | `AWS_ACCESS_KEY_ID` | AWS credential used by `boto3` when prompt templates fetch `{{bookings}}` from S3 and when video retention uses S3 storage. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py`, `vid-analyser/src/vid_analyser/prompting.py`, `vid-analyser/src/vid_analyser/storage/s3.py` |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret paired with `AWS_ACCESS_KEY_ID` for the same S3 access paths. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py`, `vid-analyser/src/vid_analyser/prompting.py`, `vid-analyser/src/vid_analyser/storage/s3.py` |
 | `AWS_DEFAULT_REGION` | Default AWS region used by `boto3` when S3-backed prompt data or S3 video storage is enabled. | `.env.example`, `docker-compose.yml`, used implicitly by `boto3` in `vid-analyser/src/vid_analyser/api/app.py` and `vid-analyser/src/vid_analyser/storage/s3.py` |
+| `LOGFIRE_TOKEN` | Logfire write token for FastAPI and Pydantic AI instrumentation emitted by the analyser service. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py` |
 
 ### Optional or non-default variables
 
@@ -152,6 +153,8 @@ Use the repo-root `.env.example` as the canonical template for the Docker Compos
 | `OUTPUT_DIR` | Manual override for where `eufy-bridge` writes temporary raw streams and MP4 files before upload. | `bridge/src/config.js` |
 | `CAPTCHA_PORT` | Port for the bridge's local captcha UI and health check. Compose sets it to `8080`. | `bridge/src/captcha-server.js`, `docker-compose.yml`, `Makefile` |
 | `VID_ANALYSER_VIDEO_S3_BUCKET` | Required when `VID_ANALYSER_STORAGE_PROVIDER=s3`; names the bucket used for retained analysed videos. | `vid-analyser/src/vid_analyser/storage/__init__.py`, `vid-analyser/src/vid_analyser/storage/s3.py` |
+| `BOOKINGS_S3_BUCKET` | Required when persisted config enables `get_bookings`; names the S3 bucket containing the bookings JSON document used by notifier context. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/bookings.py` |
+| `BOOKINGS_S3_KEY` | Required when persisted config enables `get_bookings`; key for the bookings JSON document in `BOOKINGS_S3_BUCKET`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/bookings.py` |
 | `LOCAL_STORE_DIR` | Local eval-data root used by the Streamlit eval tools, not by the production API path. | `vid-analyser/.env`, `vid-analyser/src/vid_analyser/evals/ui/labeler/app.py`, `vid-analyser/src/vid_analyser/evals/ui/results/app.py` |
 
 ## Terraform And DigitalOcean
