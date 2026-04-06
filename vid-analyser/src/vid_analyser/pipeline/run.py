@@ -2,7 +2,9 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
+from google.genai.types import MediaResolution
 from pydantic_ai import BinaryContent
+from pydantic_ai.models.google import GoogleModelSettings
 from vid_analyser.agent.notifier import Deps as NotifierDeps
 from vid_analyser.agent.notifier import NoNotification, notifier_agent
 from vid_analyser.agent.vid_analyser import Deps as VidAnalysisDeps
@@ -39,12 +41,22 @@ async def run(
             logger.info("Overlay applied, video saved to: %s", effective_video_path)
 
         analysis = await vid_analyser_agent.run(
-            ["Analyse this video", BinaryContent(effective_video_path.read_bytes(), media_type=content_type)],
+            [
+                "Analyse this video",
+                BinaryContent(
+                    effective_video_path.read_bytes(),
+                    media_type=content_type,
+                    vendor_metadata={"fps": 5.0},
+                ),
+            ],
             deps=VidAnalysisDeps(
                 video_path=effective_video_path,
                 system_prompt=config.video_analyser_sys_prompt,
                 video_start_time=video_start_time,
                 overlay_zones_descriptions=zone_descriptions(config.overlay.zones) if config.overlay else None,
+            ),
+            model_settings=GoogleModelSettings(
+                google_video_resolution=MediaResolution.MEDIA_RESOLUTION_HIGH
             ),
         )
         if analysis_repository is not None:
