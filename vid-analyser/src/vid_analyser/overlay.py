@@ -1,64 +1,118 @@
+import json
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Iterable
 
-import cv2
-import numpy as np
-from vid_analyser.overlay_schema import ZoneDefinition
+from vid_analyser.overlay_schema import Color, ZoneDefinition
 
 ALPHA = 0.05
+STROKE_WIDTH = 2
 
 
-def overlay_zones(video: Path, zones: Iterable[ZoneDefinition]) -> Path:
+def _ffprobe_dimensions(video: Path) -> tuple[int, int]:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "json",
+            str(video),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+    stream = payload["streams"][0]
+    return int(stream["width"]), int(stream["height"])
+
+
+def _scale_point(point: tuple[float, float], *, width: int, height: int) -> tuple[int, int]:
+    x, y = point
+    if max(abs(x), abs(y)) <= 1.0:
+        x *= width
+        y *= height
+    return round(x), round(y)
+
+
+def _to_svg_rgb(color: Color) -> tuple[int, int, int]:
+    blue, green, red = color.value
+    return red, green, blue
+
+
+def _zone_polygon(zone: ZoneDefinition, *, width: int, height: int) -> str | None:
+    points = [_scale_point(point, width=width, height=height) for point in zone.polygon]
+    if len(points) < 3:
+        return None
+
+    rgb = _to_svg_rgb(zone.color)
+    points_attr = " ".join(f"{x},{y}" for x, y in points)
+    return (
+        f'<polygon points="{points_attr}" '
+        f'fill="rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {ALPHA})" '
+        f'stroke="rgb({rgb[0]}, {rgb[1]}, {rgb[2]})" '
+        f'stroke-width="{STROKE_WIDTH}" />'
+    )
+
+
+def _build_svg_overlay(zones: Iterable[ZoneDefinition], *, width: int, height: int) -> str:
+    polygons = [
+        polygon
+        for zone in zones
+        if (polygon := _zone_polygon(zone, width=width, height=height)) is not None
+    ]
+    body = "\n  ".join(polygons)
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}">\n  {body}\n</svg>\n'
+    )
+
+
+def generate_overlay_reference_frame(video: Path, zones: Iterable[ZoneDefinition]) -> Path:
     if not video.exists():
         raise FileNotFoundError(video)
 
-    output_path = video.parent / f"{video.stem}_zones{video.suffix}"
+    output_path = video.parent / f"{video.stem}_zones.png"
+    width, height = _ffprobe_dimensions(video)
+    svg_document = _build_svg_overlay(zones, width=width, height=height)
 
-    cap = cv2.VideoCapture(str(video))
-    if not cap.isOpened():
-        raise RuntimeError(f"Could not open video: {video}")
+    with tempfile.NamedTemporaryFile("w", suffix=".svg", delete=False, encoding="utf-8") as svg_file:
+        svg_path = Path(svg_file.name)
+        svg_file.write(svg_document)
 
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
-    writer = cv2.VideoWriter(
-        str(output_path),
-        fourcc,
-        fps,
-        (width, height),
-    )
-    if not writer.isOpened():
-        cap.release()
-        raise RuntimeError(f"Could not open video writer for: {output_path}")
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        overlay = frame.copy()
-
-        for zone in zones:
-            raw_pts = np.array(zone.polygon, dtype=np.float32)
-            # Accept either normalized coordinates (0..1) or absolute pixel points.
-            if raw_pts.size == 0:
-                continue
-            if float(raw_pts.max()) <= 1.0:
-                raw_pts[:, 0] *= width
-                raw_pts[:, 1] *= height
-            pts = np.round(raw_pts).astype(np.int32).reshape((-1, 1, 2))
-
-            cv2.fillPoly(overlay, [pts], zone.color.value)
-            cv2.polylines(frame, [pts], isClosed=True, color=zone.color.value, thickness=2)
-
-        frame = cv2.addWeighted(overlay, ALPHA, frame, 1 - ALPHA, 0)
-
-        writer.write(frame)
-
-    cap.release()
-    writer.release()
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(video),
+                "-loop",
+                "1",
+                "-i",
+                str(svg_path),
+                "-filter_complex",
+                "[0:v][1:v]overlay",
+                "-frames:v",
+                "1",
+                str(output_path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(exc.stderr.strip() or f"ffmpeg overlay failed for {video}") from exc
+    finally:
+        svg_path.unlink(missing_ok=True)
 
     return output_path
 

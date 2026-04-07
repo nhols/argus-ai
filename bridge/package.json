@@ -4,6 +4,7 @@
     "private": true,
     "dependencies": {
         "axios": "^1.13.4",
+        "form-data": "^4.0.4",
         "ws": "^8.18.0"
     }
 }

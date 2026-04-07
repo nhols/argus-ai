@@ -2,14 +2,33 @@ import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 import axios from 'axios';
-import { Blob } from 'buffer';
+import FormData from 'form-data';
 import { log } from './logger.js';
 import {
   OUTPUT_DIR,
+  VID_ANALYSER_SHARED_INPUT_ROOT,
   VID_ANALYSER_API_URL,
   VID_ANALYSER_API_KEY,
   HOMEBASE_SN,
 } from './config.js';
+
+function closeWriteStream(stream) {
+  return new Promise((resolve, reject) => {
+    stream.on('error', reject);
+    stream.end(resolve);
+  });
+}
+
+function deleteIfExists(filePath) {
+  try {
+    fs.unlinkSync(filePath);
+    log(`🗑️  Deleted ${filePath}`);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      log(`⚠️  Failed to delete ${filePath}: ${error.message}`);
+    }
+  }
+}
 
 /**
  * Manages a serial download queue and collects both video *and* audio chunks
@@ -38,8 +57,7 @@ export class DownloadManager {
     this.currentDownload = null;
 
     /**
-     * Per-device chunk buffers.
-     * Map<serialNumber, { videoChunks: Buffer[], audioChunks: Buffer[], metadata: object }>
+     * Per-device download state.
      */
     this.activeDownloads = new Map();
   }
@@ -72,9 +90,18 @@ export class DownloadManager {
       endTime: evt.end_time,
     };
 
+    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+    const videoRawPath = path.join(OUTPUT_DIR, `${basename}.video.raw`);
+    const audioRawPath = path.join(OUTPUT_DIR, `${basename}.audio.raw`);
     this.activeDownloads.set(evt.device_sn, {
-      videoChunks: [],
-      audioChunks: [],
+      videoRawPath,
+      audioRawPath,
+      videoStream: fs.createWriteStream(videoRawPath),
+      audioStream: fs.createWriteStream(audioRawPath),
+      videoChunkCount: 0,
+      audioChunkCount: 0,
+      videoBytes: 0,
+      audioBytes: 0,
       metadata: null,
     });
 
@@ -93,8 +120,6 @@ export class DownloadManager {
     log(`⬇️  Download started for ${serialNumber}`);
     const dl = this.activeDownloads.get(serialNumber);
     if (dl) {
-      dl.videoChunks = [];
-      dl.audioChunks = [];
       dl.metadata = metadata ?? {};
     }
   }
@@ -103,7 +128,10 @@ export class DownloadManager {
   onVideoData(serialNumber, bufferData) {
     const dl = this.activeDownloads.get(serialNumber);
     if (!dl) return;
-    dl.videoChunks.push(Buffer.from(bufferData));
+    const chunk = Buffer.from(bufferData);
+    dl.videoChunkCount += 1;
+    dl.videoBytes += chunk.length;
+    dl.videoStream.write(chunk);
     this.logProgress(dl);
   }
 
@@ -111,14 +139,17 @@ export class DownloadManager {
   onAudioData(serialNumber, bufferData) {
     const dl = this.activeDownloads.get(serialNumber);
     if (!dl) return;
-    dl.audioChunks.push(Buffer.from(bufferData));
+    const chunk = Buffer.from(bufferData);
+    dl.audioChunkCount += 1;
+    dl.audioBytes += chunk.length;
+    dl.audioStream.write(chunk);
   }
 
   /** @private Write a progress counter every 200 total chunks. */
   logProgress(dl) {
-    const total = dl.videoChunks.length + dl.audioChunks.length;
+    const total = dl.videoChunkCount + dl.audioChunkCount;
     if (total % 200 === 0) {
-      process.stdout.write(`  ${dl.videoChunks.length}v / ${dl.audioChunks.length}a chunks\r`);
+      process.stdout.write(`  ${dl.videoChunkCount}v / ${dl.audioChunkCount}a chunks\r`);
     }
   }
 
@@ -137,23 +168,16 @@ export class DownloadManager {
     const basename = this.currentDownload?.outputBasename ?? serialNumber;
     this.activeDownloads.delete(serialNumber);
 
-    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-
-    const videoRawPath = path.join(OUTPUT_DIR, `${basename}.video.raw`);
-    const audioRawPath = path.join(OUTPUT_DIR, `${basename}.audio.raw`);
     const mp4Path = path.join(OUTPUT_DIR, `${basename}.mp4`);
 
     try {
-      // ── write raw streams ──────────────────────────────────────────
-      const videoBuffer = Buffer.concat(dl.videoChunks);
-      fs.writeFileSync(videoRawPath, videoBuffer);
-      log(`💾 Video: ${videoBuffer.length} bytes (${dl.videoChunks.length} chunks) → ${videoRawPath}`);
+      await closeWriteStream(dl.videoStream);
+      await closeWriteStream(dl.audioStream);
+      log(`💾 Video: ${dl.videoBytes} bytes (${dl.videoChunkCount} chunks) → ${dl.videoRawPath}`);
 
-      const hasAudio = dl.audioChunks.length > 0;
+      const hasAudio = dl.audioBytes > 0;
       if (hasAudio) {
-        const audioBuffer = Buffer.concat(dl.audioChunks);
-        fs.writeFileSync(audioRawPath, audioBuffer);
-        log(`💾 Audio: ${audioBuffer.length} bytes (${dl.audioChunks.length} chunks) → ${audioRawPath}`);
+        log(`💾 Audio: ${dl.audioBytes} bytes (${dl.audioChunkCount} chunks) → ${dl.audioRawPath}`);
       }
 
       // ── ffmpeg mux ─────────────────────────────────────────────────
@@ -167,15 +191,15 @@ export class DownloadManager {
       if (hasAudio) {
         ffmpegCmd = [
           'ffmpeg -y',
-          `-f ${videoFmt} -framerate ${videoFPS} -i ${videoRawPath}`,
-          `-f aac -i ${audioRawPath}`,
+          `-f ${videoFmt} -framerate ${videoFPS} -i ${dl.videoRawPath}`,
+          `-f aac -i ${dl.audioRawPath}`,
           '-c:v copy -c:a copy -movflags +faststart',
           mp4Path,
         ].join(' ');
       } else {
         ffmpegCmd = [
           'ffmpeg -y',
-          `-f ${videoFmt} -framerate ${videoFPS} -i ${videoRawPath}`,
+          `-f ${videoFmt} -framerate ${videoFPS} -i ${dl.videoRawPath}`,
           '-c copy -movflags +faststart',
           mp4Path,
         ].join(' ');
@@ -190,14 +214,11 @@ export class DownloadManager {
         startTime: this.currentDownload?.startTime,
         endTime: this.currentDownload?.endTime,
       });
-
-      // ── clean up intermediate and final files ──────────────────────
-      try { fs.unlinkSync(videoRawPath); } catch { /* ignore */ }
-      if (hasAudio) try { fs.unlinkSync(audioRawPath); } catch { /* ignore */ }
-      try { fs.unlinkSync(mp4Path); log(`🗑️  Deleted ${mp4Path}`); } catch { /* ignore */ }
     } catch (e) {
       log('❌ Failed to convert/send video:', e.message);
     } finally {
+      deleteIfExists(dl.videoRawPath);
+      deleteIfExists(dl.audioRawPath);
       this.isDownloading = false;
       this.currentDownload = null;
       this.processQueue();
@@ -206,26 +227,49 @@ export class DownloadManager {
 
   /** @private POST a finished mp4 to the analysis API as multipart form-data. */
   async sendToApi(mp4Path, { startTime, endTime } = {}) {
-    const mp4Data = fs.readFileSync(mp4Path);
-    const form = new FormData();
-    form.append('video', new Blob([mp4Data], { type: 'video/mp4' }), path.basename(mp4Path));
-    form.append('received_at', new Date().toISOString());
-    if (HOMEBASE_SN) form.append('station_serial_number', HOMEBASE_SN);
-    if (this.currentDownload?.serialNumber) form.append('device_serial_number', this.currentDownload.serialNumber);
-    if (this.currentDownload?.storagePath) form.append('storage_path', this.currentDownload.storagePath);
-    if (startTime) form.append('start_time', startTime);
-    if (endTime) form.append('end_time', endTime);
-
-    const resp = await axios.post(
-      VID_ANALYSER_API_URL,
-      form,
-      {
-        timeout: 30_000,
-        headers: {
-          'X-API-Key': VID_ANALYSER_API_KEY,
+    let resp;
+    if (VID_ANALYSER_SHARED_INPUT_ROOT) {
+      resp = await axios.post(
+        `${VID_ANALYSER_API_URL.replace(/\/$/, '')}/shared`,
+        {
+          shared_video_path: mp4Path,
+          content_type: 'video/mp4',
+          received_at: new Date().toISOString(),
+          start_time: startTime ?? null,
+          end_time: endTime ?? null,
         },
-      },
-    );
+        {
+          timeout: 30_000,
+          headers: {
+            'X-API-Key': VID_ANALYSER_API_KEY,
+          },
+        },
+      );
+    } else {
+      const form = new FormData();
+      form.append('video', fs.createReadStream(mp4Path), {
+        contentType: 'video/mp4',
+        filename: path.basename(mp4Path),
+      });
+      form.append('received_at', new Date().toISOString());
+      if (HOMEBASE_SN) form.append('station_serial_number', HOMEBASE_SN);
+      if (this.currentDownload?.serialNumber) form.append('device_serial_number', this.currentDownload.serialNumber);
+      if (this.currentDownload?.storagePath) form.append('storage_path', this.currentDownload.storagePath);
+      if (startTime) form.append('start_time', startTime);
+      if (endTime) form.append('end_time', endTime);
+
+      resp = await axios.post(
+        VID_ANALYSER_API_URL,
+        form,
+        {
+          timeout: 30_000,
+          headers: {
+            ...form.getHeaders(),
+            'X-API-Key': VID_ANALYSER_API_KEY,
+          },
+        },
+      );
+    }
 
     log('📨 Sent video to API');
     log('API response:', JSON.stringify({

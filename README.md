@@ -43,9 +43,9 @@ ArgusAI ingests Eufy doorbell events, downloads the corresponding recordings fro
 
 1. `eufy-ws` maintains the connection to the Eufy ecosystem and exposes a websocket API inside Docker.
 2. `eufy-bridge` listens for motion, person, and ring events, then uses `station.database_query_by_date` with exponential backoff to wait for the recording to appear.
-3. Once a clip is available, the bridge downloads raw video and audio chunks, muxes them with `ffmpeg`, and posts the finished MP4 to `POST /analyse-video`.
+3. Once a clip is available, the bridge streams raw video and audio chunks to disk, muxes them with `ffmpeg`, and forwards the finished MP4 to the analyser either via `POST /analyse-video` or the shared-path handoff at `POST /analyse-video/shared`.
 4. `vid-analyser-api` creates an execution record in SQLite, loads the latest stored run config, and builds the final system and user prompts.
-5. The analysis pipeline can add overlay zones, optionally attempt person identification, and then sends the video plus prompts to Google's Gemini models.
+5. The analysis pipeline can burn overlay zones onto the clip with `ffmpeg`, optionally attempt person identification, and then sends the video plus prompts to Google's Gemini models.
 6. The API stores the analysis result, stores the clip via the configured storage provider, optionally sends a Telegram notification, and exposes the history through the built-in UI.
 
 ### Main components
@@ -151,6 +151,7 @@ Use the repo-root `.env.example` as the canonical template for the Docker Compos
 |---|---|---|
 | `EUFY_WS_URL` | Manual override for the websocket endpoint that the bridge connects to. In Docker Compose it is fixed to `ws://eufy-ws:3000`. | `bridge/src/config.js`, `docker-compose.yml` |
 | `OUTPUT_DIR` | Manual override for where `eufy-bridge` writes temporary raw streams and MP4 files before upload. | `bridge/src/config.js` |
+| `VID_ANALYSER_SHARED_INPUT_ROOT` | Optional shared filesystem root used when the bridge and analyser can hand off clips by path instead of multipart upload. The API only accepts shared paths under this root. | `docker-compose.yml`, `bridge/src/config.js`, `vid-analyser/src/vid_analyser/api/app.py` |
 | `CAPTCHA_PORT` | Port for the bridge's local captcha UI and health check. Compose sets it to `8080`. | `bridge/src/captcha-server.js`, `docker-compose.yml`, `Makefile` |
 | `VID_ANALYSER_VIDEO_S3_BUCKET` | Required when `VID_ANALYSER_STORAGE_PROVIDER=s3`; names the bucket used for retained analysed videos. | `vid-analyser/src/vid_analyser/storage/__init__.py`, `vid-analyser/src/vid_analyser/storage/s3.py` |
 | `BOOKINGS_S3_BUCKET` | Required when persisted config enables `get_bookings`; names the S3 bucket containing the bookings JSON document used by notifier context. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/bookings.py` |

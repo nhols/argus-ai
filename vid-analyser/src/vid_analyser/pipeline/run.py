@@ -12,7 +12,7 @@ from vid_analyser.agent.vid_analyser import vid_analyser_agent
 from vid_analyser.config_schema import RunConfig
 from vid_analyser.db import SentNotificationRepository, VidAnalysisRepository
 from vid_analyser.notifications.telegram import TelegramNotificationService
-from vid_analyser.overlay import overlay_zones, zone_descriptions
+from vid_analyser.overlay import generate_overlay_reference_frame, zone_descriptions
 
 logger = logging.getLogger(__name__)
 
@@ -26,34 +26,47 @@ async def run(
     notification_repository: SentNotificationRepository | None = None,
 ):
     original_video_path = Path(video_path)
-    effective_video_path = original_video_path
     cleanup_paths: list[Path] = []
     video_start_time = datetime.now(UTC)
+    overlay_reference_frame_path: Path | None = None
 
-    logger.info("Pipeline run started video_path=%s", effective_video_path)
+    logger.info("Pipeline run started video_path=%s", original_video_path)
 
     try:
         if config.overlay is not None and config.overlay.zones:
-            logger.info("Applying overlay zones count=%s", len(config.overlay.zones))
-            effective_video_path = overlay_zones(effective_video_path, config.overlay.zones)
-            if effective_video_path != original_video_path:
-                cleanup_paths.append(effective_video_path)
-            logger.info("Overlay applied, video saved to: %s", effective_video_path)
+            logger.info("Generating overlay reference frame zones count=%s", len(config.overlay.zones))
+            overlay_reference_frame_path = generate_overlay_reference_frame(original_video_path, config.overlay.zones)
+            cleanup_paths.append(overlay_reference_frame_path)
+            logger.info("Overlay reference frame generated at: %s", overlay_reference_frame_path)
+
+        analysis_inputs: list[str | BinaryContent] = [
+            "Analyse this video.",
+            BinaryContent(
+                original_video_path.read_bytes(),
+                media_type=content_type,
+                vendor_metadata={"fps": 5.0},
+            )
+        ]
+        if overlay_reference_frame_path is not None:
+            analysis_inputs.extend(
+                [
+                    BinaryContent(
+                        overlay_reference_frame_path.read_bytes(),
+                        media_type="image/png",
+                    ),
+                    "The image is a reference frame from this fixed camera with zone overlays. Use it to interpret the raw video.",
+                ]
+            )
 
         analysis = await vid_analyser_agent.run(
-            [
-                "Analyse this video",
-                BinaryContent(
-                    effective_video_path.read_bytes(),
-                    media_type=content_type,
-                    vendor_metadata={"fps": 5.0},
-                ),
-            ],
+            analysis_inputs,
             deps=VidAnalysisDeps(
-                video_path=effective_video_path,
+                video_path=original_video_path,
                 system_prompt=config.video_analyser_sys_prompt,
                 video_start_time=video_start_time,
-                overlay_zones_descriptions=zone_descriptions(config.overlay.zones) if config.overlay else None,
+                overlay_zones_descriptions=zone_descriptions(config.overlay.zones)
+                if config.overlay and config.overlay.zones
+                else None,
             ),
             model_settings=GoogleModelSettings(
                 google_video_resolution=MediaResolution.MEDIA_RESOLUTION_HIGH
@@ -61,7 +74,7 @@ async def run(
         )
         if analysis_repository is not None:
             await analysis_repository.insert(
-                video_path=effective_video_path, result_json=analysis.output.model_dump_json()
+                video_path=original_video_path, result_json=analysis.output.model_dump_json()
             )
 
         logger.info("Video analysis complete, passing result to notifier agent")

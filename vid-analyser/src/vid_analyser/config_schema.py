@@ -1,13 +1,15 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from vid_analyser.overlay_schema import ZoneDefinition
 
 
 class OverlayConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     zones: list[ZoneDefinition] = Field(default_factory=list)
 
 
 class RunConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     overlay: OverlayConfig | None = None
     video_analyser_sys_prompt: str | None = None
     notifier_sys_prompt: str | None = None
