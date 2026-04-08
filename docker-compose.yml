@@ -52,8 +52,8 @@ services:
       context: ./vid-analyser
       dockerfile: Dockerfile.api
     restart: unless-stopped
-    mem_limit: 700m
-    mem_reservation: 512m
+    mem_limit: 600m
+    mem_reservation: 384m
     logging:
       driver: "local"
       options:

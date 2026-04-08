@@ -168,7 +168,7 @@ The Terraform under `infra/` is intentionally small. It provisions one single-te
 - one DigitalOcean firewall
 - public SSH access restricted by the configured CIDR
 - public access to the analyser app port
-- bootstrap-time installation of Docker, the Compose plugin, Git, and the expected app directories
+- bootstrap-time installation of Docker, the Compose plugin, Git, the expected app directories, and an optional swapfile
 
 It does not currently manage DNS, object storage, backups, a load balancer, or managed databases.
 
@@ -177,8 +177,8 @@ It does not currently manage DNS, object storage, backups, a load balancer, or m
 | File | Role |
 |---|---|
 | `infra/environments/example/versions.tf` | Pins Terraform and the DigitalOcean provider, and configures the provider with `var.do_token`. |
-| `infra/environments/example/variables.tf` | Defines environment-level inputs such as region, droplet size, image, SSH CIDR, and app directory. |
-| `infra/environments/example/terraform.tfvars.example` | Example values for a concrete deployment. Copy this to `terraform.tfvars` and fill in real values. |
+| `infra/environments/example/variables.tf` | Defines environment-level inputs such as region, droplet size, image, SSH CIDR, app directory, DigitalOcean project name, and swap size. |
+| `infra/environments/example/terraform.tfvars.example` | Example values for a concrete deployment. Copy this to `terraform.tfvars` and fill in real values, including the target DigitalOcean project and optional swap sizing. |
 | `infra/environments/example/main.tf` | Wires the environment variables into the reusable `modules/droplet` module. |
 | `infra/environments/example/outputs.tf` | Exposes the droplet ID and public IPv4 after `terraform apply`. |
 | `infra/modules/droplet/main.tf` | Creates the droplet and firewall, and injects the bootstrap template as cloud-init user data. |
