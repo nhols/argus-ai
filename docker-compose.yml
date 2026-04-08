@@ -1,4 +1,19 @@
 services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - vid-analyser-api
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - PUBLIC_HOSTNAME=${PUBLIC_HOSTNAME}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
   eufy-ws:
     build: ./eufy-ws
     restart: unless-stopped
@@ -68,6 +83,8 @@ services:
       - ENABLE_API_DOCS=${ENABLE_API_DOCS}
       - VID_ANALYSER_API_KEY=${VID_ANALYSER_API_KEY}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_WEBHOOK_PATH_SECRET=${TELEGRAM_WEBHOOK_PATH_SECRET}
+      - TELEGRAM_WEBHOOK_HEADER_SECRET=${TELEGRAM_WEBHOOK_HEADER_SECRET}
       - UI_BASIC_AUTH_USER=${UI_BASIC_AUTH_USER}
       - UI_BASIC_AUTH_PASSWORD=${UI_BASIC_AUTH_PASSWORD}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
@@ -77,12 +94,12 @@ services:
       - BOOKINGS_S3_KEY=${BOOKINGS_S3_KEY}
       - VID_ANALYSER_SHARED_INPUT_ROOT=/shared
       - VID_ANALYSER_MAX_CONCURRENT_JOBS=${VID_ANALYSER_MAX_CONCURRENT_JOBS:-1}
-    ports:
-      - "8000:8000"
     volumes:
       - ./local_files/vid-analyser:/app/data
       - ./local_files/shared:/shared
 
 
 volumes:
+  caddy_config:
+  caddy_data:
   eufy_ws_data:
