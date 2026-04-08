@@ -15,8 +15,9 @@ dependencies = [
     "python-telegram-bot>=21.6,<22",
     "pydantic-ai-slim[google,logfire]>=1.73.0",
     "tenacity>=9.1.4",
-    "uvicorn[standard]>=0.37.0",
+    "uvicorn>=0.37.0",
     "sqlalchemy>=2.0.48",
+    "logfire[fastapi]>=4.31.0",
 ]
 
 [project.optional-dependencies]
