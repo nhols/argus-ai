@@ -41,11 +41,6 @@ variable "app_dir" {
   default = "/opt/argusai"
 }
 
-variable "project_name" {
-  type    = string
-  default = "argus"
-}
-
 variable "swap_size_mb" {
   type    = number
   default = 1024
