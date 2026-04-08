@@ -6,13 +6,17 @@ terraform {
   }
 }
 
+data "digitalocean_project" "this" {
+  name = var.project_name
+}
+
 resource "digitalocean_droplet" "this" {
   name       = var.name
   region     = var.region
   size       = var.size
   image      = var.image
   ssh_keys   = [var.ssh_key_fingerprint]
-  user_data  = templatefile(var.user_data_template, { app_dir = var.app_dir })
+  user_data  = templatefile(var.user_data_template, { app_dir = var.app_dir, swap_size_mb = var.swap_size_mb })
   tags       = values(var.tags)
   monitoring = true
 }
@@ -50,4 +54,11 @@ resource "digitalocean_firewall" "this" {
     protocol              = "icmp"
     destination_addresses = ["0.0.0.0/0", "::/0"]
   }
+}
+
+resource "digitalocean_project_resources" "this" {
+  project = data.digitalocean_project.this.id
+  resources = [
+    digitalocean_droplet.this.urn,
+  ]
 }

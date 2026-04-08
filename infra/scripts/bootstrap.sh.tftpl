@@ -2,6 +2,7 @@
 set -euo pipefail
 
 APP_DIR="${app_dir}"
+SWAP_SIZE_MB="${swap_size_mb}"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -24,6 +25,14 @@ apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin do
 
 systemctl enable docker
 systemctl start docker
+
+if [[ "$${SWAP_SIZE_MB}" -gt 0 ]] && [[ ! -f /swapfile ]]; then
+  fallocate -l "$${SWAP_SIZE_MB}M" /swapfile || dd if=/dev/zero of=/swapfile bs=1M count="$${SWAP_SIZE_MB}" status=progress
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
 
 mkdir -p "$${APP_DIR}"
 mkdir -p "$${APP_DIR}/local_files/vid-analyser"

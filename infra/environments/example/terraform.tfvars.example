@@ -7,8 +7,10 @@ ssh_key_fingerprint  = "your-digitalocean-ssh-key-fingerprint"
 ssh_cidr             = "x.x.x.x/32"
 app_port             = 8000
 app_dir              = "/opt/argusai"
+project_name         = "argus"
+swap_size_mb         = 1024
 
 tags = {
-  project     = "argusai"
+  project     = "argus"
   environment = "example"
 }
