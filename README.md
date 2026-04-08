@@ -1,4 +1,4 @@
-`ArgusAI` is named after Argus Panoptes, the many-eyed watchman of Greek mythology.
+Argus Panoptes is the many-eyed watchman of Greek mythology.
 
 # ArgusAI
 
@@ -43,7 +43,7 @@ ArgusAI ingests Eufy doorbell events, downloads the corresponding recordings fro
 
 1. `eufy-ws` maintains the connection to the Eufy ecosystem and exposes a websocket API inside Docker.
 2. `eufy-bridge` listens for motion, person, and ring events, then uses `station.database_query_by_date` with exponential backoff to wait for the recording to appear.
-3. Once a clip is available, the bridge streams raw video and audio chunks to disk, muxes them with `ffmpeg`, and forwards the finished MP4 to the analyser either via `POST /analyse-video` or the shared-path handoff at `POST /analyse-video/shared`.
+3. Once a clip is available, the bridge streams raw video and audio chunks to disk, muxes them with `ffmpeg`, and forwards the finished MP4 to the analyser either via `POST /internal/analyse-video` or the shared-path handoff at `POST /internal/analyse-video/shared`.
 4. `vid-analyser-api` creates an execution record in SQLite, loads the latest stored run config, and builds the final system and user prompts.
 5. The analysis pipeline can burn overlay zones onto the clip with `ffmpeg`, optionally attempt person identification, and then sends the video plus prompts to Google's Gemini models.
 6. The API stores the analysis result, stores the clip via the configured storage provider, optionally sends a Telegram notification, and exposes the history through the built-in UI.
@@ -71,7 +71,7 @@ The analyser has two layers of configuration:
 - Runtime environment controls service wiring, secrets, storage backends, auth, and API behaviour.
 - Persisted run config controls the actual analysis behaviour: provider model, overlay zones, prompts, Telegram chat ID, and optional analysis features.
 
-The persisted run config lives in SQLite in the `config_versions` table and is loaded on startup from `vid-analyser/src/vid_analyser/api/app.py`. Example JSON files live in `vid-analyser/config/`, and the built-in UI exposes `/ui/config` for editing the active config.
+The persisted run config lives in SQLite in the `config_versions` table and is loaded on startup from `vid-analyser/src/vid_analyser/api/app.py`. Example JSON files live in `vid-analyser/config/`, and the built-in UI exposes `/app` while its authenticated browser API lives under `/app/api/config`.
 
 ## Local Development
 
@@ -90,18 +90,17 @@ docker compose build
 make start
 ```
 
-The stack can start before the analyser has an active run config, but `/analyse-video` will return `503` until a config is loaded. Start from `vid-analyser/config/run_config_v3.json` and either:
+The stack can start before the analyser has an active run config, but `/internal/analyse-video` will return `503` until a config is loaded. Start from `vid-analyser/config/run_config_v3.json` and either:
 
-- load it through the UI at `http://localhost:8000/ui/config`, or
-- send it to `PUT /config` inside the API's expected wrapper payload, `{ "config": ... }`.
+- load it through the UI at `https://<your-host>/app`, or
+- send it to `PUT /app/api/config` inside the API's expected wrapper payload, `{ "config": ... }`.
 
-The UI and `GET/PUT /config` are protected with `UI_BASIC_AUTH_USER` and `UI_BASIC_AUTH_PASSWORD`.
+The UI and `GET/PUT /app/api/config` are protected with `UI_BASIC_AUTH_USER` and `UI_BASIC_AUTH_PASSWORD`.
 
 Useful local endpoints:
 
-- `http://localhost:8000/ui/executions`
-- `http://localhost:8000/ui/config`
-- `http://localhost:8000/docs` when `ENABLE_API_DOCS=true`
+- `http://localhost/app`
+- `http://localhost/app/api/config`
 - `http://localhost:8080/captcha`
 
 ### Key commands
@@ -114,6 +113,8 @@ Useful local endpoints:
 | `make captcha code=ABCD` | repo root | Submits a pending Eufy captcha to the bridge's local captcha server. |
 | `make rebuild` | repo root | Rebuilds and restarts only `eufy-bridge`. |
 | `make stop` | repo root | Stops the Docker Compose stack. |
+| `make telegram-webhook-info ENV_FILE=.env.prod` | repo root | Shows the current Telegram webhook registration for the configured bot token. |
+| `make telegram-webhook-sync ENV_FILE=.env.prod` | repo root | Registers the configured Telegram webhook URL and secrets. |
 
 When running the analyser directly, the `vid-analyser/Makefile` also lets you override make variables such as `STORAGE_PROVIDER`, `STORAGE_ROOT`, `SQLITE_PATH`, and `PORT`.
 
@@ -130,7 +131,7 @@ Use the repo-root `.env.example` as the canonical template for the Docker Compos
 | `EUFY_COUNTRY` | Eufy account country code passed to `eufy-ws`. | `.env.example`, `docker-compose.yml` under `eufy-ws.environment` |
 | `DOORBELL_SN` | Device serial number that `eufy-bridge` filters on when deciding which events to process. | `.env.example`, `docker-compose.yml`, `bridge/src/config.js`, `bridge/src/event-handlers.js`, `bridge/src/query-poller.js` |
 | `HOMEBASE_SN` | HomeBase serial number used for database queries and metadata sent upstream. | `.env.example`, `docker-compose.yml`, `bridge/src/config.js`, `bridge/src/query-poller.js`, `bridge/src/download-manager.js` |
-| `VID_ANALYSER_API_URL` | URL that the bridge posts completed MP4 clips to. In Compose it should point at `/analyse-video` on the analyser service. | `.env.example`, `docker-compose.yml`, `bridge/src/config.js`, `bridge/src/download-manager.js` |
+| `VID_ANALYSER_API_URL` | URL that the bridge posts completed MP4 clips to. In Compose it should point at `/internal/analyse-video` on the analyser service. | `.env.example`, `docker-compose.yml`, `bridge/src/config.js`, `bridge/src/download-manager.js` |
 | `VID_ANALYSER_API_KEY` | Shared secret between `eufy-bridge` and `vid-analyser-api` for `X-API-Key` authentication. | `.env.example`, `docker-compose.yml`, `bridge/src/config.js`, `vid-analyser/src/vid_analyser/auth.py` |
 | `GOOGLE_API_KEY` | Google GenAI credential consumed by the analyser pipeline through the Google provider. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/agent/retry.py`, `vid-analyser/.env` for local direct runs |
 | `VID_ANALYSER_STORAGE_PROVIDER` | Storage backend for retained videos. Supported values today are `local` and `s3`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/storage/__init__.py` |
@@ -138,8 +139,12 @@ Use the repo-root `.env.example` as the canonical template for the Docker Compos
 | `VID_ANALYSER_SQLITE_PATH` | SQLite file path used for executions and config versions. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py`, `vid-analyser/Makefile` |
 | `ENABLE_API_DOCS` | Enables or disables `/docs`, `/redoc`, and `/openapi.json`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py` |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token used when notifications are enabled in the persisted run config. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py`, `vid-analyser/src/vid_analyser/notifications/telegram.py` |
-| `UI_BASIC_AUTH_USER` | Username for the admin UI and `GET/PUT /config`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/auth.py` |
-| `UI_BASIC_AUTH_PASSWORD` | Password for the admin UI and `GET/PUT /config`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/auth.py` |
+| `UI_BASIC_AUTH_USER` | Username for the admin UI and `GET/PUT /app/api/config`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/auth.py` |
+| `UI_BASIC_AUTH_PASSWORD` | Password for the admin UI and `GET/PUT /app/api/config`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/auth.py` |
+| `PUBLIC_HOSTNAME` | Public hostname that Caddy serves and secures with TLS, for example `argus.n3no.com`. | `.env.example`, `docker-compose.yml`, `infra/caddy/Caddyfile` |
+| `PUBLIC_BASE_URL` | Public HTTPS base URL used when registering Telegram webhooks. | `.env.example`, `vid-analyser/scripts/telegram_webhook.sh` |
+| `TELEGRAM_WEBHOOK_PATH_SECRET` | Random secret embedded in the Telegram webhook path under `/webhooks/telegram/...`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py` |
+| `TELEGRAM_WEBHOOK_HEADER_SECRET` | Random secret Telegram echoes in `X-Telegram-Bot-Api-Secret-Token`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py`, `vid-analyser/scripts/telegram_webhook.sh` |
 | `AWS_ACCESS_KEY_ID` | AWS credential used by `boto3` when prompt templates fetch `{{bookings}}` from S3 and when video retention uses S3 storage. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py`, `vid-analyser/src/vid_analyser/prompting.py`, `vid-analyser/src/vid_analyser/storage/s3.py` |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret paired with `AWS_ACCESS_KEY_ID` for the same S3 access paths. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/api/app.py`, `vid-analyser/src/vid_analyser/prompting.py`, `vid-analyser/src/vid_analyser/storage/s3.py` |
 | `AWS_DEFAULT_REGION` | Default AWS region used by `boto3` when S3-backed prompt data or S3 video storage is enabled. | `.env.example`, `docker-compose.yml`, used implicitly by `boto3` in `vid-analyser/src/vid_analyser/api/app.py` and `vid-analyser/src/vid_analyser/storage/s3.py` |
@@ -167,7 +172,7 @@ The Terraform under `infra/` is intentionally small. It provisions one single-te
 - one DigitalOcean droplet
 - one DigitalOcean firewall
 - public SSH access restricted by the configured CIDR
-- public access to the analyser app port
+- public access to `80` and `443` only
 - bootstrap-time installation of Docker, the Compose plugin, Git, the expected app directories, and an optional swapfile
 
 It does not currently manage DNS, object storage, backups, a load balancer, or managed databases.
@@ -207,3 +212,10 @@ infra/scripts/deploy.sh \
 ```
 
 By default the deploy script uses the current repo's `origin` remote and the current local `HEAD` commit. You can override both with `--repo` and `--ref`.
+
+After deploy, register or reconcile the Telegram webhook against the public hostname:
+
+```sh
+make telegram-webhook-info ENV_FILE=.env.prod
+make telegram-webhook-sync ENV_FILE=.env.prod
+```

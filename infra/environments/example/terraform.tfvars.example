@@ -5,7 +5,7 @@ droplet_size         = "s-1vcpu-1gb"
 image                = "ubuntu-24-04-x64"
 ssh_key_fingerprint  = "your-digitalocean-ssh-key-fingerprint"
 ssh_cidr             = "x.x.x.x/32"
-app_port             = 8000
+public_http_ports    = [80, 443]
 app_dir              = "/opt/argusai"
 swap_size_mb         = 1024
 

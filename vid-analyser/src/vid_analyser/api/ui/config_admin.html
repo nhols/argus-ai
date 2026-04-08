@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ArgusAI Config</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2">
-    <link rel="icon" type="image/png" sizes="32x32" href="/ui/assets/favicon.png?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="/app/assets/favicon.png?v=2">
     <link rel="shortcut icon" href="/favicon.ico?v=2">
     <style>
       :root {
@@ -140,7 +140,7 @@
         setBusy(true);
         setStatus("Loading...");
         try {
-          const response = await fetch("/config", {
+          const response = await fetch("/app/api/config", {
             headers: { "Accept": "application/json" }
           });
           const payload = await response.json();
@@ -170,7 +170,7 @@
         setBusy(true);
         setStatus("Saving...");
         try {
-          const response = await fetch("/config", {
+          const response = await fetch("/app/api/config", {
             method: "PUT",
             headers: {
               "Content-Type": "application/json",

@@ -28,10 +28,13 @@ resource "digitalocean_firewall" "this" {
     source_addresses = [var.ssh_cidr]
   }
 
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = tostring(var.app_port)
-    source_addresses = ["0.0.0.0/0", "::/0"]
+  dynamic "inbound_rule" {
+    for_each = var.public_http_ports
+    content {
+      protocol         = "tcp"
+      port_range       = tostring(inbound_rule.value)
+      source_addresses = ["0.0.0.0/0", "::/0"]
+    }
   }
 
   outbound_rule {

@@ -1,0 +1,16 @@
+{$PUBLIC_HOSTNAME:localhost} {
+	@public path /app /app/* /webhooks/* /favicon.ico
+	@blocked path /internal/* /docs /redoc /openapi.json
+
+	handle @blocked {
+		respond "Not Found" 404
+	}
+
+	handle @public {
+		reverse_proxy vid-analyser-api:8000
+	}
+
+	handle {
+		respond "Not Found" 404
+	}
+}

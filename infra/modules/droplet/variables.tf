@@ -24,9 +24,9 @@ variable "ssh_cidr" {
   type = string
 }
 
-variable "app_port" {
-  type    = number
-  default = 8000
+variable "public_http_ports" {
+  type    = list(number)
+  default = [80, 443]
 }
 
 variable "app_dir" {

@@ -8,6 +8,7 @@ Current scope:
 - one firewall
 - public IPv4
 - SSH access restricted by CIDR
+- public HTTP/HTTPS ingress on `80` and `443`
 - local video storage on the droplet filesystem
 - no object storage
 - no DNS
@@ -18,6 +19,7 @@ Current scope:
 - `environments/example`: example environment wiring the modules together
 - `scripts/bootstrap.sh.tftpl`: instance bootstrap script used by Terraform
 - `scripts/deploy.sh`: local deploy helper that waits for cloud-init to finish, checks out a git ref on the server, copies local `.env.prod` to remote `.env`, and starts Compose
+- `caddy/Caddyfile`: public reverse proxy that exposes `/app` and `/webhooks/*` while keeping `/internal/*` private
 
 ## Typical flow
 
@@ -28,3 +30,4 @@ Current scope:
    - check out the selected git ref on the instance
    - copy local `.env.prod` to remote `.env`
    - run `docker compose up -d --build`
+4. Point your Cloudflare DNS record at the droplet and run `make telegram-webhook-sync ENV_FILE=.env.prod`.

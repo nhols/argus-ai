@@ -54,7 +54,7 @@ def test_config_ui_loads_and_updates_config(tmp_path, monkeypatch):
     with TestClient(app) as client:
         headers = _basic_auth_header("admin", "secret")
 
-        response = client.get("/ui", headers=headers)
+        response = client.get("/app", headers=headers)
         assert response.status_code == 200
         assert "Config Admin" in response.text
 
@@ -62,10 +62,51 @@ def test_config_ui_loads_and_updates_config(tmp_path, monkeypatch):
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/x-icon"
 
-        response = client.put("/config", headers=headers, json={"config": updated_config, "source": "ui"})
+        response = client.put("/app/api/config", headers=headers, json={"config": updated_config, "source": "ui"})
         assert response.status_code == 200
         assert response.json()["config"] == updated_config
 
-        response = client.get("/config", headers=headers)
+        response = client.get("/app/api/config", headers=headers)
         assert response.status_code == 200
         assert response.json()["config"] == updated_config
+
+
+def test_telegram_webhook_requires_matching_secrets(tmp_path, monkeypatch):
+    monkeypatch.setenv("VID_ANALYSER_STORAGE_PROVIDER", "local")
+    monkeypatch.setenv("VID_ANALYSER_STORAGE_ROOT", str(tmp_path / "storage"))
+    monkeypatch.setenv("VID_ANALYSER_SQLITE_PATH", str(tmp_path / "vid-analyser.db"))
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_PATH_SECRET", "path-secret")
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_HEADER_SECRET", "header-secret")
+
+    from vid_analyser.api.app import app
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhooks/telegram/path-secret",
+            headers={"X-Telegram-Bot-Api-Secret-Token": "header-secret"},
+            json={
+                "update_id": 1,
+                "message": {
+                    "message_id": 2,
+                    "chat": {"id": 3, "type": "private"},
+                    "from": {"id": 4, "is_bot": False, "first_name": "Neil"},
+                    "text": "hello",
+                },
+            },
+        )
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+        response = client.post(
+            "/webhooks/telegram/wrong",
+            headers={"X-Telegram-Bot-Api-Secret-Token": "header-secret"},
+            json={"update_id": 1},
+        )
+        assert response.status_code == 401
+
+        response = client.post(
+            "/webhooks/telegram/path-secret",
+            headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
+            json={"update_id": 1},
+        )
+        assert response.status_code == 401

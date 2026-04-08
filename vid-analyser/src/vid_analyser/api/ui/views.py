@@ -14,13 +14,13 @@ router = APIRouter()
 FAVICON_HEADERS = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
 
-@router.get("/", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_ui_basic_auth)])
-@router.get("/ui", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_ui_basic_auth)])
+@router.get("/app", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_ui_basic_auth)])
+@router.get("/app/", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_ui_basic_auth)])
 async def config_ui() -> HTMLResponse:
     return HTMLResponse(HTML_PATH.read_text(encoding="utf-8"))
 
 
-@router.get("/ui/assets/favicon.png", include_in_schema=False)
+@router.get("/app/assets/favicon.png", include_in_schema=False)
 async def ui_favicon() -> FileResponse:
     return FileResponse(FAVICON_PNG_PATH, media_type="image/png", headers=FAVICON_HEADERS)
 
