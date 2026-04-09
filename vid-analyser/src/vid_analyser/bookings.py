@@ -55,7 +55,7 @@ def _filter_todays_bookings(bookings: dict[str, Any] | list[Any], *, now: dateti
             continue
         start_at = _parse_datetime(start_date)
         end_at = _parse_datetime(end_date)
-        if not (start_at <= now <= end_at):
+        if not (start_at.date() <= now.date() <= end_at.date()):
             continue
 
         vehicle = booking.get("vehicle", {}).get("data", {})
