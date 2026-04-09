@@ -51,15 +51,15 @@ services:
       - "127.0.0.1:8080:8080"   # captcha endpoint — localhost only
     volumes:
       - ./local_files:/app/local_files
-      - ./local_files/shared:/shared
+      - ./local_files/shared:${SHARED_VIDEO_DIR}
     environment:
       - EUFY_WS_URL=ws://eufy-ws:3000
       - DOORBELL_SN=${DOORBELL_SN}
       - HOMEBASE_SN=${HOMEBASE_SN}
       - VID_ANALYSER_API_URL=${VID_ANALYSER_API_URL}
       - VID_ANALYSER_API_KEY=${VID_ANALYSER_API_KEY}
-      - OUTPUT_DIR=/shared
-      - VID_ANALYSER_SHARED_INPUT_ROOT=/shared
+      - OUTPUT_DIR=${SHARED_VIDEO_DIR}
+      - VID_ANALYSER_USE_SHARED_INPUT=true
       - CAPTCHA_PORT=8080
 
   vid-analyser-api:
@@ -92,11 +92,11 @@ services:
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
       - BOOKINGS_S3_BUCKET=${BOOKINGS_S3_BUCKET}
       - BOOKINGS_S3_KEY=${BOOKINGS_S3_KEY}
-      - VID_ANALYSER_SHARED_INPUT_ROOT=/shared
+      - VID_ANALYSER_SHARED_INPUT_ROOT=${SHARED_VIDEO_DIR}
       - VID_ANALYSER_MAX_CONCURRENT_JOBS=${VID_ANALYSER_MAX_CONCURRENT_JOBS:-1}
     volumes:
       - ./local_files/vid-analyser:/app/data
-      - ./local_files/shared:/shared
+      - ./local_files/shared:${SHARED_VIDEO_DIR}
 
 
 volumes:

@@ -1,5 +1,6 @@
-from pathlib import Path
 import shutil
+import os
+from pathlib import Path
 
 from vid_analyser.storage.base import StorageProvider, VideoReference
 
@@ -21,6 +22,7 @@ class LocalStorageProvider(StorageProvider):
         destination_path = self._root / relative_path
         destination_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, destination_path)
+        os.utime(destination_path, None)
         return VideoReference(provider="local", path=str(relative_path))
 
     def resolve_path(self, relative_path: str | Path) -> Path:

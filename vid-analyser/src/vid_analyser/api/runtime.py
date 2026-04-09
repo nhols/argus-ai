@@ -102,6 +102,7 @@ async def initialize_app_state(app: FastAPI) -> None:
     app.state.analysis_repository = VidAnalysisRepository(session_factory)
     app.state.storage_provider = build_storage_provider()
     app.state.background_tasks = set()
+    app.state.local_video_cleanup_lock = asyncio.Lock()
     app.state.max_concurrent_jobs = get_max_concurrent_jobs()
     app.state.analysis_semaphore = asyncio.Semaphore(app.state.max_concurrent_jobs)
     logger.info("Configured max concurrent analysis jobs=%s", app.state.max_concurrent_jobs)

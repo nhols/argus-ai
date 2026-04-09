@@ -6,7 +6,7 @@ import FormData from 'form-data';
 import { log } from './logger.js';
 import {
   OUTPUT_DIR,
-  VID_ANALYSER_SHARED_INPUT_ROOT,
+  VID_ANALYSER_USE_SHARED_INPUT,
   VID_ANALYSER_API_URL,
   VID_ANALYSER_API_KEY,
   HOMEBASE_SN,
@@ -228,7 +228,7 @@ export class DownloadManager {
   /** @private POST a finished mp4 to the analysis API as multipart form-data. */
   async sendToApi(mp4Path, { startTime, endTime } = {}) {
     let resp;
-    if (VID_ANALYSER_SHARED_INPUT_ROOT) {
+    if (VID_ANALYSER_USE_SHARED_INPUT) {
       resp = await axios.post(
         `${VID_ANALYSER_API_URL.replace(/\/$/, '')}/shared`,
         {

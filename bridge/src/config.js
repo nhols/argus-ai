@@ -4,7 +4,8 @@ export const DOORBELL_SN = process.env.DOORBELL_SN;
 export const VID_ANALYSER_API_URL = process.env.VID_ANALYSER_API_URL;
 export const VID_ANALYSER_API_KEY = process.env.VID_ANALYSER_API_KEY;
 export const OUTPUT_DIR = process.env.OUTPUT_DIR ?? './local_files';
-export const VID_ANALYSER_SHARED_INPUT_ROOT = process.env.VID_ANALYSER_SHARED_INPUT_ROOT;
+export const VID_ANALYSER_USE_SHARED_INPUT =
+  (process.env.VID_ANALYSER_USE_SHARED_INPUT ?? 'false').trim().toLowerCase() === 'true';
 
 export const CONNECT_TIMEOUT_MS = 10 * 60 * 1000;       // 10 minutes
 export const BACKOFF_DELAYS = [5000, 10000, 20000, 40000, 80000]; // ~2.5 min total

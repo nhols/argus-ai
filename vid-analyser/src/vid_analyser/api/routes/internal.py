@@ -17,6 +17,7 @@ from vid_analyser.api.runtime import (
     require_active_run_config,
 )
 from vid_analyser.pipeline.run import run
+from vid_analyser.video_cleanup import cleanup_old_videos
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +211,10 @@ async def _background_analyse_video(
         if cleanup_path is not None:
             cleanup_path.unlink(missing_ok=True)
             logger.info("Deleted temp file %s", cleanup_path)
+        try:
+            await _cleanup_local_storage_videos(app)
+        except Exception:
+            logger.exception("Local video cleanup failed after request=%s identifier=%s", request_name, identifier)
 
 
 def _guess_content_type(path: Path, fallback: str | None = None) -> str:
@@ -218,6 +223,13 @@ def _guess_content_type(path: Path, fallback: str | None = None) -> str:
 
 def _new_request_id() -> str:
     return uuid.uuid4().hex
+
+
+async def _cleanup_local_storage_videos(app: FastAPI) -> None:
+    async with app.state.local_video_cleanup_lock:
+        deleted_files = await asyncio.to_thread(cleanup_old_videos)
+    if deleted_files:
+        logger.info("Deleted %s expired video file(s) from cleanup directories", deleted_files)
 
 
 router = APIRouter(prefix="/internal", dependencies=[Depends(require_vid_analyser_api_key)])
