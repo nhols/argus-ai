@@ -7,7 +7,7 @@ from typing import Iterable
 from vid_analyser.overlay_schema import Color, ZoneDefinition
 
 ALPHA = 0.05
-STROKE_WIDTH = 2
+STROKE_WIDTH = 4
 
 
 def _ffprobe_dimensions(video: Path) -> tuple[int, int]:

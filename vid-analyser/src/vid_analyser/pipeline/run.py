@@ -29,6 +29,9 @@ async def run(
     cleanup_paths: list[Path] = []
     video_start_time = datetime.now(UTC)
     overlay_reference_frame_path: Path | None = None
+    overlay_zones_info = (
+        zone_descriptions(config.overlay.zones) if config.overlay and config.overlay.zones else None
+    )
 
     logger.info("Pipeline run started video_path=%s", original_video_path)
 
@@ -50,11 +53,18 @@ async def run(
         if overlay_reference_frame_path is not None:
             analysis_inputs.extend(
                 [
+                    (
+                        "File static_image is a static reference image taken from this video. "
+                        "The overlay zones below relate to static_image. "
+                        "Pay close attention to those zones when analysing static_image and the video.\n"
+                        f"The overlay zones for file static_image are:\n{overlay_zones_info}"
+                    ),
+                    "This is file static_image from the video:",
                     BinaryContent(
                         overlay_reference_frame_path.read_bytes(),
                         media_type="image/png",
+                        identifier="static_image",
                     ),
-                    "The image is a reference frame from this fixed camera with zone overlays. Use it to interpret the raw video.",
                 ]
             )
 
@@ -64,9 +74,6 @@ async def run(
                 video_path=original_video_path,
                 system_prompt=config.video_analyser_sys_prompt,
                 video_start_time=video_start_time,
-                overlay_zones_descriptions=zone_descriptions(config.overlay.zones)
-                if config.overlay and config.overlay.zones
-                else None,
             ),
             model_settings=GoogleModelSettings(
                 google_video_resolution=MediaResolution.MEDIA_RESOLUTION_HIGH
