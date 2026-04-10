@@ -89,9 +89,7 @@ def _build_message_history(records: list[TelegramChatMessageRecord]) -> list[Mod
             )
             continue
         if record.direction == "outbound":
-            message_history.append(
-                ModelResponse(parts=[TextPart(content=f"{record.created_at} ArgusAI Bot: {record.text}")])
-            )
+            message_history.append(ModelResponse(parts=[TextPart(content=f"{record.created_at}: {record.text}")]))
     return message_history
 
 
