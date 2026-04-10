@@ -1,21 +1,22 @@
 import asyncio
-import os
 import logging
 import mimetypes
+import os
 import tempfile
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
-
-from vid_analyser.auth import require_vid_analyser_api_key
-from vid_analyser.config_schema import RunConfig
 from vid_analyser.api.runtime import (
+    get_app_state,
     require_active_run_config,
 )
+from vid_analyser.auth import require_vid_analyser_api_key
+from vid_analyser.config_schema import RunConfig
 from vid_analyser.pipeline.run import run
 from vid_analyser.video_cleanup import cleanup_old_videos
 
@@ -26,9 +27,9 @@ UPLOAD_CHUNK_SIZE = 1024 * 1024
 
 
 class AnalyseVideoMetadata(BaseModel):
-    received_at: str | None = None
-    start_time: str | None = None
-    end_time: str | None = None
+    received_at: datetime | None = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
 
 class AnalyseSharedVideoRequest(AnalyseVideoMetadata):
@@ -87,8 +88,9 @@ async def _write_upload_to_temp_file(video: UploadFile) -> tuple[Path, int]:
 
 
 def _track_background_task(app: FastAPI, task: asyncio.Task) -> None:
-    app.state.background_tasks.add(task)
-    task.add_done_callback(app.state.background_tasks.discard)
+    state = get_app_state(app)
+    state.background_tasks.add(task)
+    task.add_done_callback(state.background_tasks.discard)
 
 
 def _snapshot_active_run_config(app: FastAPI) -> tuple[RunConfig, int | None, str | None]:
@@ -110,8 +112,10 @@ async def _run_analysis(
     identifier: str,
     run_config: RunConfig,
     config_version_id: int | None,
-    config_source: str | None,
+    clip_start_time: datetime | None,
+    clip_end_time: datetime | None,
 ) -> object:
+    state = get_app_state(app)
     start = time.perf_counter()
     logger.info(
         "Starting %s identifier=%s content_type=%s size_bytes=%s config_id=%s",
@@ -126,8 +130,9 @@ async def _run_analysis(
             video_path=video_path,
             config=run_config,
             content_type=content_type,
-            analysis_repository=app.state.analysis_repository,
-            notification_repository=app.state.notification_repository,
+            db=state.db,
+            clip_start_time=clip_start_time,
+            clip_end_time=clip_end_time,
         )
         duration_ms = (time.perf_counter() - start) * 1000
         logger.info(
@@ -165,8 +170,11 @@ async def _background_analyse_video(
     run_config: RunConfig,
     config_version_id: int | None,
     config_source: str | None,
+    clip_start_time: datetime | None,
+    clip_end_time: datetime | None,
     cleanup_path: Path | None = None,
 ) -> None:
+    state = get_app_state(app)
     try:
         logger.info(
             "Background analysis queued request=%s identifier=%s config_id=%s source=%s",
@@ -175,19 +183,19 @@ async def _background_analyse_video(
             config_version_id,
             config_source,
         )
-        semaphore = app.state.analysis_semaphore
+        semaphore = state.analysis_semaphore
         logger.info(
             "Waiting for analysis slot request=%s identifier=%s active_limit=%s",
             request_name,
             identifier,
-            app.state.max_concurrent_jobs,
+            state.max_concurrent_jobs,
         )
         async with semaphore:
             logger.info(
                 "Acquired analysis slot request=%s identifier=%s active_limit=%s",
                 request_name,
                 identifier,
-                app.state.max_concurrent_jobs,
+                state.max_concurrent_jobs,
             )
             await _run_analysis(
                 app,
@@ -198,7 +206,8 @@ async def _background_analyse_video(
                 identifier=identifier,
                 run_config=run_config,
                 config_version_id=config_version_id,
-                config_source=config_source,
+                clip_start_time=clip_start_time,
+                clip_end_time=clip_end_time,
             )
     except Exception:
         logger.exception(
@@ -226,7 +235,8 @@ def _new_request_id() -> str:
 
 
 async def _cleanup_local_storage_videos(app: FastAPI) -> None:
-    async with app.state.local_video_cleanup_lock:
+    state = get_app_state(app)
+    async with state.local_video_cleanup_lock:
         deleted_files = await asyncio.to_thread(cleanup_old_videos)
     if deleted_files:
         logger.info("Deleted %s expired video file(s) from cleanup directories", deleted_files)
@@ -239,9 +249,9 @@ router = APIRouter(prefix="/internal", dependencies=[Depends(require_vid_analyse
 async def analyse_video(
     request: Request,
     video: Annotated[UploadFile, File(...)],
-    received_at: Annotated[str | None, Form()] = None,
-    start_time: Annotated[str | None, Form()] = None,
-    end_time: Annotated[str | None, Form()] = None,
+    received_at: Annotated[datetime | None, Form()] = None,
+    start_time: Annotated[datetime | None, Form()] = None,
+    end_time: Annotated[datetime | None, Form()] = None,
 ):
     logger.info("Received analyse-video request from %s", request.client.host if request.client else "unknown")
     metadata = AnalyseVideoMetadata(received_at=received_at, start_time=start_time, end_time=end_time)
@@ -272,6 +282,8 @@ async def analyse_video(
             run_config=run_config,
             config_version_id=config_version_id,
             config_source=config_source,
+            clip_start_time=metadata.start_time,
+            clip_end_time=metadata.end_time,
             cleanup_path=temp_path,
         ),
         name=f"analyse-video:{request_id}",
@@ -311,6 +323,8 @@ async def analyse_shared_video(payload: AnalyseSharedVideoRequest, request: Requ
             run_config=run_config,
             config_version_id=config_version_id,
             config_source=config_source,
+            clip_start_time=payload.start_time,
+            clip_end_time=payload.end_time,
         ),
         name=f"analyse-video-shared:{request_id}",
     )

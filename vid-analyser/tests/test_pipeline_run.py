@@ -1,9 +1,11 @@
 import asyncio
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 from pydantic_ai import BinaryContent
+from vid_analyser.db import init_database
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
@@ -29,7 +31,11 @@ class _StubVidAnalyserAgent:
 
 
 class _StubNotifierAgent:
+    def __init__(self):
+        self.calls = []
+
     async def run(self, **kwargs):
+        self.calls.append(kwargs)
         return SimpleNamespace(output="sent")
 
 
@@ -90,3 +96,54 @@ def test_build_svg_overlay_uses_thicker_zone_strokes():
     )
 
     assert 'stroke-width="4"' in svg
+
+
+def test_run_persists_analysis_trace_ids_and_links_notification_to_analysis(tmp_path, monkeypatch):
+    video_path = tmp_path / "clip.mp4"
+    video_path.write_bytes(b"video")
+
+    stub_vid_agent = _StubVidAnalyserAgent()
+    stub_notifier_agent = _StubNotifierAgent()
+    monkeypatch.setattr(pipeline_run, "vid_analyser_agent", stub_vid_agent)
+    monkeypatch.setattr(pipeline_run, "notifier_agent", stub_notifier_agent)
+
+    class _FakeSpanContext:
+        trace_id = int("019d78c3bdb09b4a7f86016d6b87d8e5", 16)
+        span_id = int("5e4efff3ff52f591", 16)
+        is_valid = True
+
+    class _FakeSpan:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get_span_context(self):
+            return _FakeSpanContext()
+
+    monkeypatch.setattr(pipeline_run.logfire, "span", lambda *_args, **_kwargs: _FakeSpan())
+
+    config = RunConfig()
+
+    async def _run():
+        db = await init_database(str(tmp_path / "vid-analyser.db"))
+        await pipeline_run.run(
+            video_path,
+            config,
+            "video/mp4",
+            db=db,
+            clip_start_time=datetime.fromisoformat("2026-04-10T09:00:00+00:00"),
+            clip_end_time=datetime.fromisoformat("2026-04-10T09:00:30+00:00"),
+        )
+        analysis_records = await db.query_analyses(limit=10)
+        return analysis_records, stub_notifier_agent.calls
+
+    analysis_records, notifier_calls = asyncio.run(_run())
+
+    assert len(analysis_records) == 1
+    assert analysis_records[0].clip_start_time == datetime.fromisoformat("2026-04-10T09:00:00+00:00")
+    assert analysis_records[0].clip_end_time == datetime.fromisoformat("2026-04-10T09:00:30+00:00")
+    assert analysis_records[0].logfire_trace_id == "019d78c3bdb09b4a7f86016d6b87d8e5"
+    assert analysis_records[0].logfire_span_id == "5e4efff3ff52f591"
+    assert notifier_calls[0]["deps"].vid_analysis_id == analysis_records[0].id

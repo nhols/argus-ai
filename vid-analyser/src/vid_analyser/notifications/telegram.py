@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from telegram import Bot
+from telegram import Bot, Message
 from vid_analyser.notifications.base import NotificationService
 
 TOKEN_ENV_VAR = "TELEGRAM_BOT_TOKEN"
@@ -22,3 +22,6 @@ class TelegramNotificationService(NotificationService):
                 video=video_file,
                 caption=caption,
             )
+
+    async def send_message(self, *, chat_id: str, text: str) -> Message:
+        return await self._bot.send_message(chat_id=chat_id, text=text)

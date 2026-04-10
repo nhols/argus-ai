@@ -1,9 +1,11 @@
 import json
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from pydantic import BaseModel
 
-from vid_analyser.db import ExecutionRepository
+
+class ExecutionRepository(Protocol):
+    def get_recent_notification_messages(self, *, limit: int) -> list[dict[str, str | None]]: ...
 
 BOOKINGS_S3_BUCKET = "jp-bookings"
 BOOKINGS_S3_KEY = "bookings.json"

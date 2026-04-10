@@ -5,10 +5,11 @@ from pathlib import Path
 
 from pydantic import BaseModel, NonNegativeInt
 from pydantic_ai import Agent, RunContext
+from vid_analyser.agent.memory import GLOBAL_AGENT_MEMORY_NAME
 from vid_analyser.agent.retry import create_google_retry_model
 from vid_analyser.agent.utils import get_timestamps
 from vid_analyser.bookings import format_bookings_prompt, load_bookings_json
-from vid_analyser.db import SentNotificationRepository
+from vid_analyser.db import Database
 from vid_analyser.notifications.base import NotificationService
 
 logger = logging.getLogger()
@@ -30,13 +31,13 @@ If there is no meaningful event, the activity is routine, or the evidence is too
 
 @dataclass
 class Deps:
-    # dbconn: ... TODO to get message histroy from db
     video_path: Path
+    vid_analysis_id: int | None
     system_prompt: str | None
     style_guide: str | None
     video_start_time: datetime
     notification_service: NotificationService | None
-    notification_repository: SentNotificationRepository | None
+    db: Database | None
     chat_id: str | None
     get_bookings: bool
     n_previous_messages: NonNegativeInt
@@ -52,10 +53,11 @@ async def send_notification(ctx: RunContext[Deps], message: str) -> str:
         video_path=ctx.deps.video_path,
         caption=message,
     )
-    if ctx.deps.notification_repository is not None:
-        await ctx.deps.notification_repository.insert(
+    if ctx.deps.db is not None:
+        await ctx.deps.db.insert_notification(
             video_path=ctx.deps.video_path,
             chat_id=ctx.deps.chat_id,
+            vid_analysis_id=ctx.deps.vid_analysis_id,
             message=message,
         )
     return message
@@ -90,6 +92,16 @@ async def get_style_guide(ctx: RunContext[Deps]) -> str | None:
 
 
 @notifier_agent.instructions
+async def get_agent_memory(ctx: RunContext[Deps]) -> str | None:
+    if ctx.deps.db is None:
+        return None
+    memory = await ctx.deps.db.get_latest_agent_memory(agent_name=GLOBAL_AGENT_MEMORY_NAME)
+    if memory is None or not memory.memory_text.strip():
+        return None
+    return f"Current global agent memory:\n{memory.memory_text}"
+
+
+@notifier_agent.instructions
 def get_bookings(ctx: RunContext[Deps]) -> str | None:
     if not ctx.deps.get_bookings:
         return None
@@ -98,10 +110,10 @@ def get_bookings(ctx: RunContext[Deps]) -> str | None:
 
 @notifier_agent.instructions
 async def get_previous_messages(ctx: RunContext[Deps]) -> str | None:
-    if ctx.deps.n_previous_messages == 0 or ctx.deps.notification_repository is None:
+    if ctx.deps.n_previous_messages == 0 or ctx.deps.db is None:
         logger.info("Previous message fetching not configured")
         return None
-    msgs = await ctx.deps.notification_repository.get_recent(limit=ctx.deps.n_previous_messages)
+    msgs = await ctx.deps.db.get_recent_notifications(limit=ctx.deps.n_previous_messages)
     if not msgs:
         logger.info("No previous messages found")
         return None

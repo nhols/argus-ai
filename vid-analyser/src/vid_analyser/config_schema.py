@@ -14,6 +14,7 @@ class RunConfig(BaseModel):
     video_analyser_sys_prompt: str | None = None
     notifier_sys_prompt: str | None = None
     notifier_style: str | None = None
+    telegram_operator_sys_prompt: str | None = None
     telegram_chat_id: str | None = None
     previous_messages_limit: int = 10
     get_bookings: bool = False

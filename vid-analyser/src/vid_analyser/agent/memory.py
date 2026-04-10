@@ -1,0 +1,1 @@
+GLOBAL_AGENT_MEMORY_NAME = "global"
