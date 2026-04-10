@@ -6,7 +6,6 @@ import sys
 from typing import Any, cast
 
 from fastapi import FastAPI, HTTPException, Request
-
 from vid_analyser.config_schema import RunConfig
 from vid_analyser.db import Database, init_database
 from vid_analyser.storage import build_storage_provider
@@ -60,6 +59,8 @@ def config_summary(config: RunConfig | None) -> dict[str, object]:
         "has_telegram_operator_prompt": bool(config.telegram_operator_sys_prompt),
         "telegram_enabled": bool(config.telegram_chat_id),
         "previous_messages_limit": config.previous_messages_limit,
+        "agent_memory_limit": config.agent_memory_limit,
+        "agent_memory_decay_days": config.agent_memory_half_life_days,
         "get_bookings": config.get_bookings,
     }
 

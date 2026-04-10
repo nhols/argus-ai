@@ -18,6 +18,8 @@ def apply(conn: Connection) -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at VARCHAR NOT NULL,
             agent_name VARCHAR NOT NULL,
+            weight FLOAT NOT NULL DEFAULT 1.0,
+            is_core BOOLEAN NOT NULL DEFAULT 0,
             memory_text TEXT NOT NULL
         )
         """

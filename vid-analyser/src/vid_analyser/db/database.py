@@ -1,4 +1,5 @@
 import json
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -188,10 +189,20 @@ class Database:
             result = await session.execute(stmt)
             return list(result.scalars())
 
-    async def insert_agent_memory(self, *, agent_name: str, memory_text: str) -> AgentMemoryRecord:
+    async def insert_agent_memory(
+        self,
+        *,
+        agent_name: str,
+        memory_text: str,
+        weight: float = 1.0,
+        is_core: bool = False,
+        created_at: str | None = None,
+    ) -> AgentMemoryRecord:
         record = AgentMemoryRecord(
-            created_at=utc_now_iso(),
+            created_at=created_at or utc_now_iso(),
             agent_name=agent_name,
+            weight=weight,
+            is_core=is_core,
             memory_text=memory_text,
         )
         async with self._session_factory() as session:
@@ -200,13 +211,32 @@ class Database:
             await session.refresh(record)
         return record
 
-    async def get_latest_agent_memory(self, *, agent_name: str) -> AgentMemoryRecord | None:
+    async def get_ranked_agent_memories(
+        self,
+        *,
+        agent_name: str,
+        limit: int,
+        decay_days: float,
+        now: datetime | None = None,
+    ) -> list[AgentMemoryRecord]:
         stmt = (
             select(AgentMemoryRecord)
             .where(AgentMemoryRecord.agent_name == agent_name)
             .order_by(AgentMemoryRecord.id.desc())
-            .limit(1)
         )
         async with self._session_factory() as session:
             result = await session.execute(stmt)
-            return result.scalar_one_or_none()
+            records = list(result.scalars())
+        if limit <= 0:
+            return []
+        current_time = now or datetime.now(UTC)
+        decay_constant = math.log(2) / decay_days
+
+        def rank(record: AgentMemoryRecord) -> float:
+            if record.is_core:
+                return record.weight
+            created_at = datetime.fromisoformat(record.created_at)
+            age_days = max((current_time - created_at).total_seconds() / 86400.0, 0.0)
+            return record.weight * math.exp(-decay_constant * age_days)
+
+        return sorted(records, key=rank, reverse=True)[:limit]

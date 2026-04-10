@@ -1,5 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
-
+from pydantic import BaseModel, ConfigDict, Field, PositiveFloat
 from vid_analyser.overlay_schema import ZoneDefinition
 
 
@@ -17,4 +16,6 @@ class RunConfig(BaseModel):
     telegram_operator_sys_prompt: str | None = None
     telegram_chat_id: str | None = None
     previous_messages_limit: int = 10
+    agent_memory_limit: int = 10
+    agent_memory_half_life_days: PositiveFloat = 7.0
     get_bookings: bool = False

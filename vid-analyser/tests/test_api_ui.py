@@ -50,6 +50,8 @@ def test_config_ui_loads_and_updates_config(tmp_path, monkeypatch):
         "telegram_operator_sys_prompt": "initial telegram operator prompt",
         "telegram_chat_id": None,
         "previous_messages_limit": 5,
+        "agent_memory_limit": 10,
+        "agent_memory_decay_days": 7.0,
         "get_bookings": False,
     }
     updated_config = {
@@ -60,6 +62,8 @@ def test_config_ui_loads_and_updates_config(tmp_path, monkeypatch):
         "telegram_operator_sys_prompt": "updated telegram operator prompt",
         "telegram_chat_id": None,
         "previous_messages_limit": 7,
+        "agent_memory_limit": 8,
+        "agent_memory_decay_days": 3.0,
         "get_bookings": True,
     }
 
@@ -110,6 +114,8 @@ def test_telegram_webhook_requires_matching_secrets(tmp_path, monkeypatch):
                 "telegram_operator_sys_prompt": None,
                 "telegram_chat_id": "3",
                 "previous_messages_limit": 5,
+                "agent_memory_limit": 10,
+                "agent_memory_decay_days": 7.0,
                 "get_bookings": False,
             },
             source="test-seed",
@@ -176,6 +182,8 @@ def test_telegram_webhook_ignores_wrong_chat_empty_text_duplicate_and_bots(tmp_p
                 "telegram_operator_sys_prompt": "operator style",
                 "telegram_chat_id": "3",
                 "previous_messages_limit": 5,
+                "agent_memory_limit": 10,
+                "agent_memory_decay_days": 7.0,
                 "get_bookings": False,
             },
             source="test-seed",
@@ -237,8 +245,10 @@ def test_telegram_webhook_ignores_wrong_chat_empty_text_duplicate_and_bots(tmp_p
         assert recent[1].direction == "inbound"
         assert recent[1].sender_username == "neil"
 
-        memory = asyncio.run(app.state.db.get_latest_agent_memory(agent_name="global"))
-        assert memory is not None
-        assert memory.memory_text == "Last sender: Neil"
+        memories = asyncio.run(
+            app.state.db.get_ranked_agent_memories(agent_name="global", limit=1, decay_days=7.0)
+        )
+        assert len(memories) == 1
+        assert memories[0].memory_text == "Last sender: Neil"
 
         assert app.state.run_config.notifier_style == "updated by operator"

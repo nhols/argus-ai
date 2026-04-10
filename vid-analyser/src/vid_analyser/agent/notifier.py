@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, NonNegativeInt
 from pydantic_ai import Agent, RunContext
-from vid_analyser.agent.memory import GLOBAL_AGENT_MEMORY_NAME
+from vid_analyser.agent.memory import build_memory_instructions
 from vid_analyser.agent.retry import create_google_retry_model
 from vid_analyser.agent.utils import get_timestamps
 from vid_analyser.bookings import format_bookings_prompt, load_bookings_json
@@ -41,6 +41,8 @@ class Deps:
     chat_id: str | None
     get_bookings: bool
     n_previous_messages: NonNegativeInt
+    agent_memory_limit: NonNegativeInt
+    agent_memory_decay_days: float
 
 
 async def send_notification(ctx: RunContext[Deps], message: str) -> str:
@@ -93,12 +95,11 @@ async def get_style_guide(ctx: RunContext[Deps]) -> str | None:
 
 @notifier_agent.instructions
 async def get_agent_memory(ctx: RunContext[Deps]) -> str | None:
-    if ctx.deps.db is None:
-        return None
-    memory = await ctx.deps.db.get_latest_agent_memory(agent_name=GLOBAL_AGENT_MEMORY_NAME)
-    if memory is None or not memory.memory_text.strip():
-        return None
-    return f"Current global agent memory:\n{memory.memory_text}"
+    return await build_memory_instructions(
+        db=ctx.deps.db,
+        limit=ctx.deps.agent_memory_limit,
+        decay_days=ctx.deps.agent_memory_decay_days,
+    )
 
 
 @notifier_agent.instructions

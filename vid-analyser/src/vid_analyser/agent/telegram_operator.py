@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from pydantic import PositiveInt
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
-from vid_analyser.agent.memory import GLOBAL_AGENT_MEMORY_NAME
+from vid_analyser.agent.memory import GLOBAL_AGENT_MEMORY_NAME, build_memory_instructions
 from vid_analyser.agent.retry import create_google_retry_model
 from vid_analyser.api.runtime import get_app_state, require_active_run_config, set_active_config_state
 from vid_analyser.config_schema import RunConfig
@@ -40,7 +40,7 @@ Rules:
 - every turn must end with exactly one response sent back to the Telegram chat
 """
 
-MEMORY_CHAR_LIMIT = 4000
+MEMORY_CHAR_LIMIT = 200
 DEFAULT_TRANSCRIPT_LIMIT = 20
 
 
@@ -168,10 +168,11 @@ async def get_operator_prompt(ctx: RunContext[Deps]) -> str:
 
 @telegram_operator_agent.instructions
 async def inject_memory_context(ctx: RunContext[Deps]) -> str | None:
-    memory = await ctx.deps.db.get_latest_agent_memory(agent_name=GLOBAL_AGENT_MEMORY_NAME)
-    if memory is None or not memory.memory_text.strip():
-        return None
-    return f"Here are some memories you've noted during rpevious conversations:\n{memory.memory_text}"
+    return await build_memory_instructions(
+        db=ctx.deps.db,
+        limit=ctx.deps.current_config.agent_memory_limit,
+        decay_days=ctx.deps.current_config.agent_memory_half_life_days,
+    )
 
 
 @telegram_operator_agent.tool
@@ -212,14 +213,33 @@ async def query_sent_notifications(
 
 
 @telegram_operator_agent.tool(
-    description=f"Store a new free-text memory snapshot for the telegram operator agent. Keep it concise and under the size limit of {MEMORY_CHAR_LIMIT}"
+    description=(
+        f"Store a new append-only global memory item. "
+        f"Provide memory_text plus a weight and whether it is a core memory. "
+        f"Non-core memories fade with time according to the weight they are given; "
+        f"higher weights stay relevant longer, and 1 is the strongest non-core weight. "
+        f"Core memories do not fade with time. "
+        f"Keep memory_text concise and under the size limit of {MEMORY_CHAR_LIMIT}."
+    )
 )
-async def replace_agent_memory(ctx: RunContext[Deps], memory_text: str) -> str:
+async def replace_agent_memory(
+    ctx: RunContext[Deps],
+    memory_text: str,
+    weight: float = 1.0,
+    is_core: bool = False,
+) -> str:
     normalized = memory_text.strip()
     if len(normalized) > MEMORY_CHAR_LIMIT:
         raise ModelRetry(f"memory_text exceeds {MEMORY_CHAR_LIMIT} characters")
-    await ctx.deps.db.insert_agent_memory(agent_name=GLOBAL_AGENT_MEMORY_NAME, memory_text=normalized)
-    return f"Stored new global agent memory snapshot ({len(normalized)} chars)."
+    if weight <= 0 or weight > 1:
+        raise ModelRetry("weight must be > 0 and <= 1")
+    await ctx.deps.db.insert_agent_memory(
+        agent_name=GLOBAL_AGENT_MEMORY_NAME,
+        memory_text=normalized,
+        weight=weight,
+        is_core=is_core,
+    )
+    return f"Stored new global memory item weight={weight} core={is_core} ({len(normalized)} chars)."
 
 
 @telegram_operator_agent.tool

@@ -81,4 +81,6 @@ class AgentMemoryRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
     agent_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    weight: Mapped[float] = mapped_column(nullable=False, default=1.0)
+    is_core: Mapped[bool] = mapped_column(nullable=False, default=False)
     memory_text: Mapped[str] = mapped_column(Text, nullable=False)

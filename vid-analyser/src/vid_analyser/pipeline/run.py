@@ -45,9 +45,7 @@ async def run(
     cleanup_paths: list[Path] = []
     video_start_time = datetime.now(UTC)
     overlay_reference_frame_path: Path | None = None
-    overlay_zones_info = (
-        zone_descriptions(config.overlay.zones) if config.overlay and config.overlay.zones else None
-    )
+    overlay_zones_info = zone_descriptions(config.overlay.zones) if config.overlay and config.overlay.zones else None
 
     logger.info("Pipeline run started video_path=%s", original_video_path)
 
@@ -57,7 +55,9 @@ async def run(
 
             if config.overlay is not None and config.overlay.zones:
                 logger.info("Generating overlay reference frame zones count=%s", len(config.overlay.zones))
-                overlay_reference_frame_path = generate_overlay_reference_frame(original_video_path, config.overlay.zones)
+                overlay_reference_frame_path = generate_overlay_reference_frame(
+                    original_video_path, config.overlay.zones
+                )
                 cleanup_paths.append(overlay_reference_frame_path)
                 logger.info("Overlay reference frame generated at: %s", overlay_reference_frame_path)
 
@@ -67,7 +67,7 @@ async def run(
                     original_video_path.read_bytes(),
                     media_type=content_type,
                     vendor_metadata={"fps": 5.0},
-                )
+                ),
             ]
             if overlay_reference_frame_path is not None:
                 analysis_inputs.extend(
@@ -94,9 +94,7 @@ async def run(
                     system_prompt=config.video_analyser_sys_prompt,
                     video_start_time=video_start_time,
                 ),
-                model_settings=GoogleModelSettings(
-                    google_video_resolution=MediaResolution.MEDIA_RESOLUTION_HIGH
-                ),
+                model_settings=GoogleModelSettings(google_video_resolution=MediaResolution.MEDIA_RESOLUTION_HIGH),
             )
             analysis_record = None
             if db is not None:
@@ -124,6 +122,8 @@ async def run(
                     chat_id=config.telegram_chat_id,
                     get_bookings=config.get_bookings,
                     n_previous_messages=config.previous_messages_limit,
+                    agent_memory_limit=config.agent_memory_limit,
+                    agent_memory_decay_days=config.agent_memory_half_life_days,
                 ),
             )
             if isinstance(noti_result.output, NoNotification):
