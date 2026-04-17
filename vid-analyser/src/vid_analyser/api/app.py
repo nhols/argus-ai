@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 import logfire
 from dotenv import load_dotenv
 from fastapi import FastAPI
-
 from vid_analyser.api.routes import app_api_router, internal_router, webhook_router
 from vid_analyser.api.runtime import initialize_app_state
 from vid_analyser.api.ui import router as ui_router
@@ -23,7 +22,7 @@ def configure_logfire(app: FastAPI) -> None:
             logger.info("Logfire token not configured; skipping FastAPI and Pydantic AI instrumentation")
             return
         logfire.configure()
-        logfire.instrument_pydantic_ai()
+        logfire.instrument_pydantic_ai(include_binary_content=False)
         logfire.instrument_fastapi(app)
     except Exception:
         logger.warning("Logfire not configured; skipping FastAPI and Pydantic AI instrumentation")
