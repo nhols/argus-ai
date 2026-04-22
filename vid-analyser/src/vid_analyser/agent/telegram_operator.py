@@ -72,7 +72,7 @@ async def send_telegram_reply(ctx: RunContext[Deps], text: str) -> str:
 
 
 telegram_operator_agent = Agent(
-    model=create_google_retry_model("gemini-3.1-pro-preview"),
+    model=create_google_retry_model("gemini-3.1-flash-lite-preview"),
     deps_type=Deps,
     output_type=[send_telegram_reply],
 )
