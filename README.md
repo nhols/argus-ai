@@ -206,10 +206,11 @@ After the droplet exists, deploy the app from your local checkout:
 ```sh
 infra/scripts/deploy.sh \
   --host <droplet-ip> \
-  --user root \
   --env-file .env \
   --identity ~/.ssh/<your-key>
 ```
+
+If you use an SSH config alias, you can pass the alias as `--host` and omit `--user` when the alias already defines the user. To deploy only the analyser service, pass `--service vid-analyser-api`.
 
 By default the deploy script uses the current repo's `origin` remote and the current local `HEAD` commit. You can override both with `--repo` and `--ref`.
 

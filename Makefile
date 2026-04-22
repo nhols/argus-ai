@@ -1,7 +1,14 @@
 ENV_FILE ?= .env
 LOCAL_COMPOSE_FILES = -f docker-compose.yml -f docker-compose.local.yml
+DEPLOY_HOST ?= argus
+DEPLOY_USER ?=
+DEPLOY_ENV_FILE ?= .env.prod
+DEPLOY_APP_DIR ?= /opt/argusai
+DEPLOY_IDENTITY ?=
+DEPLOY_REF ?=
+DEPLOY_SERVICE ?=
 
-.PHONY: start stop logs captcha rebuild local telegram-webhook-info telegram-webhook-set telegram-webhook-delete telegram-webhook-sync
+.PHONY: start stop logs captcha rebuild local deploy telegram-webhook-info telegram-webhook-set telegram-webhook-delete telegram-webhook-sync
 
 start:
 	docker compose up -d
@@ -23,6 +30,14 @@ local:
 	@echo "✅ Local services started with local override."
 	@echo "Vid analyser UI: http://localhost:8000/app"
 	@echo "If a captcha is needed, use: make captcha code=ABCD"
+
+deploy:
+	@set -- --host "$(DEPLOY_HOST)" --env-file "$(DEPLOY_ENV_FILE)" --app-dir "$(DEPLOY_APP_DIR)"; \
+	if [ -n "$(DEPLOY_USER)" ]; then set -- "$$@" --user "$(DEPLOY_USER)"; fi; \
+	if [ -n "$(DEPLOY_IDENTITY)" ]; then set -- "$$@" --identity "$(DEPLOY_IDENTITY)"; fi; \
+	if [ -n "$(DEPLOY_REF)" ]; then set -- "$$@" --ref "$(DEPLOY_REF)"; fi; \
+	if [ -n "$(DEPLOY_SERVICE)" ]; then set -- "$$@" --service "$(DEPLOY_SERVICE)"; fi; \
+	./infra/scripts/deploy.sh "$$@"
 
 captcha:
 	@if [ -z "$(code)" ]; then echo "❌ Usage: make captcha code=ABCD"; exit 1; fi

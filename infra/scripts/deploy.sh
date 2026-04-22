@@ -4,18 +4,19 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  deploy.sh --host <host> --user <user> [options]
+  deploy.sh --host <host> [options]
 
 Required:
   --host         Remote host or IP
-  --user         SSH user
 
 Optional:
+  --user         SSH user (omit to let SSH config provide it)
   --env-file     Local env file to copy to remote .env (default: .env.prod)
   --app-dir      Remote app dir (default: /opt/argusai)
   --identity     SSH identity file
   --repo         Git repo URL (default: local origin remote)
   --ref          Git ref to deploy (default: local HEAD commit)
+  --service      Compose service to rebuild/start (default: full stack)
 EOF
 }
 
@@ -26,6 +27,7 @@ APP_DIR="/opt/argusai"
 IDENTITY_FILE=""
 REPO_URL=""
 GIT_REF=""
+SERVICE_NAME=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -36,12 +38,13 @@ while [[ $# -gt 0 ]]; do
     --identity) IDENTITY_FILE="$2"; shift 2 ;;
     --repo) REPO_URL="$2"; shift 2 ;;
     --ref) GIT_REF="$2"; shift 2 ;;
+    --service) SERVICE_NAME="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
 done
 
-if [[ -z "$HOST" || -z "$USER_NAME" ]]; then
+if [[ -z "$HOST" ]]; then
   usage
   exit 1
 fi
@@ -68,7 +71,10 @@ if [[ -n "$IDENTITY_FILE" ]]; then
   SSH_OPTS+=(-i "$IDENTITY_FILE")
 fi
 
-REMOTE="${USER_NAME}@${HOST}"
+REMOTE="$HOST"
+if [[ -n "$USER_NAME" ]]; then
+  REMOTE="${USER_NAME}@${HOST}"
+fi
 
 ssh "${SSH_OPTS[@]}" "$REMOTE" "
   set -euo pipefail
@@ -91,13 +97,19 @@ ssh "${SSH_OPTS[@]}" "$REMOTE" "
 "
 
 scp "${SSH_OPTS[@]}" "$ENV_FILE" "$REMOTE:${APP_DIR}/.env"
+
+COMPOSE_UP_CMD="docker compose up -d --build"
+if [[ -n "$SERVICE_NAME" ]]; then
+  COMPOSE_UP_CMD="docker compose up -d --build '${SERVICE_NAME}'"
+fi
+
 ssh "${SSH_OPTS[@]}" "$REMOTE" "
   set -euo pipefail
   cd '${APP_DIR}'
   if docker compose version >/dev/null 2>&1; then
-    docker compose up -d --build
+    ${COMPOSE_UP_CMD}
   elif command -v docker-compose >/dev/null 2>&1; then
-    docker-compose up -d --build
+    ${COMPOSE_UP_CMD/docker compose/docker-compose}
   else
     echo 'Docker Compose is not installed on the remote host.' >&2
     exit 1
