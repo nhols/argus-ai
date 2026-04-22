@@ -1,6 +1,7 @@
 ENV_FILE ?= .env
+LOCAL_COMPOSE_FILES = -f docker-compose.yml -f docker-compose.local.yml
 
-.PHONY: start stop logs captcha rebuild telegram-webhook-info telegram-webhook-set telegram-webhook-delete telegram-webhook-sync
+.PHONY: start stop logs captcha rebuild local telegram-webhook-info telegram-webhook-set telegram-webhook-delete telegram-webhook-sync
 
 start:
 	docker compose up -d
@@ -16,6 +17,12 @@ rebuild:
 
 logs:
 	docker compose logs -f eufy-bridge
+
+local:
+	docker compose $(LOCAL_COMPOSE_FILES) up -d
+	@echo "✅ Local services started with local override."
+	@echo "Vid analyser UI: http://localhost:8000/app"
+	@echo "If a captcha is needed, use: make captcha code=ABCD"
 
 captcha:
 	@if [ -z "$(code)" ]; then echo "❌ Usage: make captcha code=ABCD"; exit 1; fi
