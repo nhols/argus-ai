@@ -2,7 +2,7 @@ import { log } from './logger.js';
 import {
   HOMEBASE_SN,
   DOORBELL_SN,
-  BACKOFF_DELAYS,
+  RECORDING_AVAILABILITY_POLL_DELAYS,
   QUERY_RESPONSE_TIMEOUT_MS,
 } from './config.js';
 
@@ -10,7 +10,7 @@ const fmt = (d) => d.toISOString().slice(0, 10).replace(/-/g, '');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Polls `station.database_query_by_date` with exponential back-off until a
+ * Polls `station.database_query_by_date` until a
  * new doorbell event that hasn't been sent upstream yet appears.
  *
  * Because the WS bridge returns query results as an *event* (not a direct
@@ -41,7 +41,7 @@ export class QueryPoller {
   // ── public API ───────────────────────────────────────────────────────
 
   /**
-   * Poll with exponential back-off until new doorbell events are found.
+   * Poll until new doorbell events are found.
    * Returns the new events, or `[]` if none found after all retries.
    *
    * Only one poll loop runs at a time — concurrent calls return `[]`.
@@ -54,9 +54,13 @@ export class QueryPoller {
     this.polling = true;
 
     try {
-      for (const delay of BACKOFF_DELAYS) {
-        log(`⏳ Waiting ${delay / 1000}s before querying…`);
-        await sleep(delay);
+      for (const delay of RECORDING_AVAILABILITY_POLL_DELAYS) {
+        if (delay > 0) {
+          log(`⏳ Waiting ${delay / 1000}s before querying…`);
+          await sleep(delay);
+        } else {
+          log('🔎 Querying immediately for completed recording…');
+        }
 
         const data = await this.queryAndWait();
         const newEvents = (data || []).filter(
@@ -64,7 +68,7 @@ export class QueryPoller {
         );
 
         if (newEvents.length > 0) {
-          log(`✅ Found ${newEvents.length} new event(s) after back-off`);
+          log(`✅ Found ${newEvents.length} new event(s)`);
           return newEvents;
         }
         log('No new events yet, retrying…');

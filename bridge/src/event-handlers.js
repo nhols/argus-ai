@@ -1,6 +1,14 @@
 import { log } from './logger.js';
 import { DOORBELL_SN, HOMEBASE_SN, CONNECT_TIMEOUT_MS } from './config.js';
 
+const RECORDING_EDGE_EVENTS = new Set([
+  'motion detected',
+  'person detected',
+  'vehicle detected',
+  'pet detected',
+  'rings',
+]);
+
 /**
  * Creates a message-handler pair (`handleOpen`, `handleMessage`) that wires
  * together the QueryPoller, DownloadManager, and CaptchaServer via clean,
@@ -14,6 +22,7 @@ import { DOORBELL_SN, HOMEBASE_SN, CONNECT_TIMEOUT_MS } from './config.js';
  */
 export function createMessageHandler({ queryPoller, downloadManager, captchaServer, sentEvents }) {
   let connectTimeout = null;
+  const lastRecordingEdgeState = new Map();
 
   // ── lifecycle ──────────────────────────────────────────────────────
 
@@ -49,9 +58,7 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
     }
 
     // detection / trigger events
-    if (eventName === 'motion detected')  handleDetection(msg, '🚨 Motion detected');
-    if (eventName === 'person detected')  handleDetection(msg, '🚶 Person detected');
-    if (eventName === 'rings')            handleDetection(msg, '🔔 Doorbell ring');
+    if (RECORDING_EDGE_EVENTS.has(eventName)) handleRecordingEdge(msg);
 
     // captcha
     if (eventName === 'captcha request') handleCaptchaRequest(msg);
@@ -82,12 +89,21 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
   }
 
   /**
-   * Generic handler for motion / person / ring events.
-   * Triggers exponential-backoff polling for new recordings.
+   * Generic handler for recording-related state events.
+   * When detection ends, the recording may now be available in the database.
    */
-  async function handleDetection(msg, label) {
+  async function handleRecordingEdge(msg) {
     if (msg.event?.serialNumber !== DOORBELL_SN) return;
-    log(`${label} (state=${msg.event.state})`);
+
+    const eventName = msg.event?.event;
+    const state = msg.event?.state;
+    log(`${eventName} (state=${state})`);
+
+    if (typeof state !== 'boolean') return;
+
+    const previousState = lastRecordingEdgeState.get(eventName);
+    lastRecordingEdgeState.set(eventName, state);
+    if (state !== false || previousState === false) return;
 
     const newEvents = await queryPoller.pollForNewEvents(sentEvents);
     if (newEvents.length > 0) {
