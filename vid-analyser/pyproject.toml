@@ -29,6 +29,7 @@ faces = [
 
 [dependency-groups]
 dev = [
+    "greenlet>=3.3.2",
     "pytest>=8.4.2",
     "ruff>=0.15.2",
     "ty>=0.0.33",

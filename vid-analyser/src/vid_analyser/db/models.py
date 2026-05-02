@@ -59,6 +59,19 @@ class VidAnalysisRecord(Base):
     logfire_span_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+class VidAnalyserSnoozeRecord(Base):
+    __tablename__ = "vid_analyser_snoozes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(AwareDateTime(), nullable=False, index=True)
+    ends_at: Mapped[datetime] = mapped_column(AwareDateTime(), nullable=False, index=True)
+    created_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(AwareDateTime(), nullable=True, index=True)
+    cancelled_by: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 class TelegramChatMessageRecord(Base):
     __tablename__ = "telegram_chat_messages"
 

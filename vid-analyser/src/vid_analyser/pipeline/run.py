@@ -131,6 +131,18 @@ async def run(
 
     with logfire.span("video analysis pipeline", video_path=str(original_video_path)) as pipeline_span:
         logfire_trace_id, logfire_span_id = _span_ids_from_logfire_span(pipeline_span)
+        if db is not None:
+            active_snooze = await db.get_active_vid_analyser_snooze()
+            if active_snooze is not None:
+                logger.info(
+                    "Discarding video analysis while snoozed video_path=%s snooze_id=%s ends_at=%s reason=%s",
+                    original_video_path,
+                    active_snooze.id,
+                    active_snooze.ends_at.isoformat(),
+                    active_snooze.reason,
+                )
+                return None
+
         analysis_output = await analyse_video(
             original_video_path,
             config,

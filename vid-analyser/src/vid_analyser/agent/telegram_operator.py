@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import FastAPI
@@ -24,6 +24,8 @@ Each notification is based on a video analysis result produced from a clip. In t
 You can:
 - inspect video analysis history
 - inspect sent notification history
+- snooze video analysis so incoming videos are discarded without analysis for a limited time
+- cancel the active video analysis snooze
 - update the global agent memory scratchpad when useful (use this to store key facts that might come in useful at a later date)
 - update only notifier_style when the user clearly asks
 - send a plain text response back to the Telegram chat
@@ -42,6 +44,8 @@ Rules:
 
 MEMORY_CHAR_LIMIT = 200
 DEFAULT_TRANSCRIPT_LIMIT = 20
+SNOOZE_REASON_CHAR_LIMIT = 200
+MAX_SNOOZE_MINUTES = 24 * 60
 
 
 @dataclass
@@ -132,6 +136,10 @@ def _serialize_record(record: object) -> dict[str, object]:
     return serialized
 
 
+def _current_sender_label(ctx: RunContext[Deps]) -> str:
+    return ctx.deps.sender_display_name or ctx.deps.sender_username or ctx.deps.sender_user_id or "unknown"
+
+
 @telegram_operator_agent.instructions
 def get_base_instructions(_: RunContext[Deps]) -> str:
     return DEFAULT_SYS_PROMPT
@@ -208,6 +216,53 @@ async def query_sent_notifications(
         limit=limit,
     )
     return [_serialize_record(record) for record in records]
+
+
+@telegram_operator_agent.tool
+async def get_vid_analyser_snooze_status(ctx: RunContext[Deps]) -> dict[str, object]:
+    """Return the currently active video analysis snooze, if any."""
+    active_snooze = await ctx.deps.db.get_active_vid_analyser_snooze()
+    if active_snooze is None:
+        return {"active": False}
+    return {"active": True, "snooze": _serialize_record(active_snooze)}
+
+
+@telegram_operator_agent.tool(
+    description=(
+        f"Snooze video analysis for 1-{MAX_SNOOZE_MINUTES} minutes. "
+        f"Incoming videos are discarded during the snooze. "
+        f"Keep reason under {SNOOZE_REASON_CHAR_LIMIT} chars."
+    )
+)
+async def snooze_vid_analyser(
+    ctx: RunContext[Deps],
+    duration_minutes: PositiveInt,
+    reason: str | None = None,
+) -> dict[str, object]:
+    if duration_minutes > MAX_SNOOZE_MINUTES:
+        raise ModelRetry(f"duration_minutes must be <= {MAX_SNOOZE_MINUTES}")
+    normalized_reason = reason.strip() if reason is not None else None
+    if normalized_reason == "":
+        normalized_reason = None
+    if normalized_reason is not None and len(normalized_reason) > SNOOZE_REASON_CHAR_LIMIT:
+        raise ModelRetry(f"reason exceeds {SNOOZE_REASON_CHAR_LIMIT} characters")
+
+    starts_at = datetime.now(UTC)
+    ends_at = starts_at + timedelta(minutes=duration_minutes)
+    record = await ctx.deps.db.insert_vid_analyser_snooze(
+        starts_at=starts_at,
+        ends_at=ends_at,
+        created_by=_current_sender_label(ctx),
+        reason=normalized_reason,
+    )
+    return {"created": True, "snooze": _serialize_record(record)}
+
+
+@telegram_operator_agent.tool
+async def cancel_vid_analyser_snooze(ctx: RunContext[Deps]) -> dict[str, object]:
+    """Cancel all active video analysis snoozes."""
+    cancelled_count = await ctx.deps.db.cancel_active_vid_analyser_snoozes(cancelled_by=_current_sender_label(ctx))
+    return {"cancelled_count": cancelled_count}
 
 
 @telegram_operator_agent.tool(

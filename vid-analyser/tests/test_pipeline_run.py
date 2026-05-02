@@ -1,6 +1,7 @@
 import asyncio
+import logging
 import sys
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -177,3 +178,37 @@ def test_run_persists_analysis_trace_ids_and_links_notification_to_analysis(tmp_
     assert analysis_records[0].logfire_trace_id == "019d78c3bdb09b4a7f86016d6b87d8e5"
     assert analysis_records[0].logfire_span_id == "5e4efff3ff52f591"
     assert notifier_calls[0]["deps"].vid_analysis_id == analysis_records[0].id
+
+
+def test_run_discards_video_while_vid_analyser_is_snoozed(tmp_path, monkeypatch, caplog):
+    video_path = tmp_path / "clip.mp4"
+    video_path.write_bytes(b"video")
+
+    stub_vid_agent = _StubVidAnalyserAgent()
+    stub_notifier_agent = _StubNotifierAgent()
+    monkeypatch.setattr(pipeline_run, "vid_analyser_agent", stub_vid_agent)
+    monkeypatch.setattr(pipeline_run, "notifier_agent", stub_notifier_agent)
+    caplog.set_level(logging.INFO, logger=pipeline_run.logger.name)
+
+    config = RunConfig()
+
+    async def _run():
+        db = await init_database(str(tmp_path / "vid-analyser.db"))
+        now = datetime.now(UTC)
+        await db.insert_vid_analyser_snooze(
+            starts_at=now - timedelta(minutes=1),
+            ends_at=now + timedelta(minutes=10),
+            created_by="test",
+            reason="quiet time",
+        )
+        result = await pipeline_run.run(video_path, config, "video/mp4", db=db)
+        analysis_records = await db.query_analyses(limit=10)
+        return result, analysis_records
+
+    result, analysis_records = asyncio.run(_run())
+
+    assert result is None
+    assert analysis_records == []
+    assert stub_vid_agent.calls == []
+    assert stub_notifier_agent.calls == []
+    assert "Discarding video analysis while snoozed" in caplog.text

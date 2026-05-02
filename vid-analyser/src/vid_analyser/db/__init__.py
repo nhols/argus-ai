@@ -6,6 +6,7 @@ from vid_analyser.db.models import (
     SentNotificationRecord,
     TelegramChatMessageRecord,
     VidAnalysisRecord,
+    VidAnalyserSnoozeRecord,
 )
 from vid_analyser.db.session import build_session_factory, init_database
 
@@ -17,6 +18,7 @@ __all__ = [
     "SentNotificationRecord",
     "TelegramChatMessageRecord",
     "VidAnalysisRecord",
+    "VidAnalyserSnoozeRecord",
     "build_session_factory",
     "init_database",
 ]

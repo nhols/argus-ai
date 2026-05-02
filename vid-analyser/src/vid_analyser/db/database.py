@@ -13,6 +13,7 @@ from vid_analyser.db.models import (
     SentNotificationRecord,
     TelegramChatMessageRecord,
     VidAnalysisRecord,
+    VidAnalyserSnoozeRecord,
 )
 
 
@@ -132,6 +133,72 @@ class Database:
         async with self._session_factory() as session:
             result = await session.execute(stmt)
             return list(result.scalars())
+
+    async def insert_vid_analyser_snooze(
+        self,
+        *,
+        starts_at: datetime,
+        ends_at: datetime,
+        created_by: str | None = None,
+        reason: str | None = None,
+    ) -> VidAnalyserSnoozeRecord:
+        record = VidAnalyserSnoozeRecord(
+            created_at=utc_now_iso(),
+            starts_at=starts_at,
+            ends_at=ends_at,
+            created_by=created_by,
+            reason=reason,
+        )
+        async with self._session_factory() as session:
+            session.add(record)
+            await session.commit()
+            await session.refresh(record)
+        return record
+
+    async def get_active_vid_analyser_snooze(
+        self,
+        *,
+        now: datetime | None = None,
+    ) -> VidAnalyserSnoozeRecord | None:
+        current_time = now or datetime.now(UTC)
+        stmt = (
+            select(VidAnalyserSnoozeRecord)
+            .where(
+                VidAnalyserSnoozeRecord.starts_at <= current_time,
+                VidAnalyserSnoozeRecord.ends_at > current_time,
+                VidAnalyserSnoozeRecord.cancelled_at.is_(None),
+            )
+            .order_by(VidAnalyserSnoozeRecord.ends_at.desc(), VidAnalyserSnoozeRecord.id.desc())
+            .limit(1)
+        )
+        async with self._session_factory() as session:
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    async def cancel_active_vid_analyser_snoozes(
+        self,
+        *,
+        cancelled_by: str | None = None,
+        now: datetime | None = None,
+    ) -> int:
+        current_time = now or datetime.now(UTC)
+        stmt = (
+            select(VidAnalyserSnoozeRecord)
+            .where(
+                VidAnalyserSnoozeRecord.starts_at <= current_time,
+                VidAnalyserSnoozeRecord.ends_at > current_time,
+                VidAnalyserSnoozeRecord.cancelled_at.is_(None),
+            )
+            .order_by(VidAnalyserSnoozeRecord.id.desc())
+        )
+        async with self._session_factory() as session:
+            result = await session.execute(stmt)
+            records = list(result.scalars())
+            for record in records:
+                record.cancelled_at = current_time
+                record.cancelled_by = cancelled_by
+            await session.commit()
+        return len(records)
 
     async def insert_telegram_chat_message(
         self,

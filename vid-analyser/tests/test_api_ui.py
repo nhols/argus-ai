@@ -51,7 +51,7 @@ def test_config_ui_loads_and_updates_config(tmp_path, monkeypatch):
         "telegram_chat_id": None,
         "previous_messages_limit": 5,
         "agent_memory_limit": 10,
-        "agent_memory_decay_days": 7.0,
+        "agent_memory_half_life_days": 7.0,
         "get_bookings": False,
     }
     updated_config = {
@@ -63,7 +63,7 @@ def test_config_ui_loads_and_updates_config(tmp_path, monkeypatch):
         "telegram_chat_id": None,
         "previous_messages_limit": 7,
         "agent_memory_limit": 8,
-        "agent_memory_decay_days": 3.0,
+        "agent_memory_half_life_days": 3.0,
         "get_bookings": True,
     }
 
@@ -115,7 +115,7 @@ def test_telegram_webhook_requires_matching_secrets(tmp_path, monkeypatch):
                 "telegram_chat_id": "3",
                 "previous_messages_limit": 5,
                 "agent_memory_limit": 10,
-                "agent_memory_decay_days": 7.0,
+                    "agent_memory_half_life_days": 7.0,
                 "get_bookings": False,
             },
             source="test-seed",
@@ -183,7 +183,7 @@ def test_telegram_webhook_ignores_wrong_chat_empty_text_duplicate_and_bots(tmp_p
                 "telegram_chat_id": "3",
                 "previous_messages_limit": 5,
                 "agent_memory_limit": 10,
-                "agent_memory_decay_days": 7.0,
+                    "agent_memory_half_life_days": 7.0,
                 "get_bookings": False,
             },
             source="test-seed",
