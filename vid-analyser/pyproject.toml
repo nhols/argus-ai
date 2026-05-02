@@ -31,7 +31,11 @@ faces = [
 dev = [
     "pytest>=8.4.2",
     "ruff>=0.15.2",
-    "streamlit>=1.54.0",
+    "ty>=0.0.33",
+]
+eval = [
+    "pydantic-evals>=1.73.0",
+    "rapidfuzz>=3.0.0",
 ]
 ui = [
     "python-dotenv>=1.1.0",

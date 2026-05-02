@@ -49,3 +49,6 @@ models/
 
 # config
 vid-analyser/config/*
+
+# eval data
+eval_data/

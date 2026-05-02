@@ -43,7 +43,7 @@ class Deps:
     video_start_time: datetime
 
 
-vid_analyser_agent = Agent(
+vid_analyser_agent = Agent[Deps, VidAnalysis](
     model=create_google_retry_model("gemini-3.1-flash-lite-preview"),
     output_type=VidAnalysis,
     deps_type=Deps,

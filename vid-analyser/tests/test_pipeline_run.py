@@ -4,17 +4,16 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from pydantic_ai import BinaryContent
-from vid_analyser.db import init_database
-
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from vid_analyser.config_schema import OverlayConfig, RunConfig
-from vid_analyser.overlay import _build_svg_overlay
-from vid_analyser.overlay_schema import Color, ZoneDefinition
-from vid_analyser.pipeline import run as pipeline_run
+from pydantic_ai import BinaryContent  # noqa: E402
+from vid_analyser.config_schema import OverlayConfig, RunConfig  # noqa: E402
+from vid_analyser.db import init_database  # noqa: E402
+from vid_analyser.overlay import _build_svg_overlay  # noqa: E402
+from vid_analyser.overlay_schema import Color, ZoneDefinition  # noqa: E402
+from vid_analyser.pipeline import run as pipeline_run  # noqa: E402
 
 
 class _StubVidAnalyserAgent:
@@ -80,6 +79,37 @@ def test_run_attaches_static_image_identifier_in_user_message(tmp_path, monkeypa
     assert analysis_inputs[4].identifier == "static_image"
     assert analysis_inputs[4].media_type == "image/png"
     assert not hasattr(kwargs["deps"], "overlay_zones_descriptions")
+
+
+def test_analyse_video_cleans_up_overlay_reference_frame(tmp_path, monkeypatch):
+    video_path = tmp_path / "clip.mp4"
+    video_path.write_bytes(b"video")
+    overlay_path = tmp_path / "clip_zones.png"
+    overlay_path.write_bytes(b"png")
+
+    stub_vid_agent = _StubVidAnalyserAgent()
+    monkeypatch.setattr(pipeline_run, "vid_analyser_agent", stub_vid_agent)
+    monkeypatch.setattr(
+        pipeline_run,
+        "generate_overlay_reference_frame",
+        lambda _video, _zones: overlay_path,
+    )
+
+    config = RunConfig(
+        overlay=OverlayConfig(
+            zones=[
+                ZoneDefinition(
+                    label="Bay 1",
+                    color=Color.RED,
+                    polygon=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)],
+                )
+            ]
+        )
+    )
+
+    asyncio.run(pipeline_run.analyse_video(video_path, config, "video/mp4"))
+
+    assert not overlay_path.exists()
 
 
 def test_build_svg_overlay_uses_thicker_zone_strokes():
