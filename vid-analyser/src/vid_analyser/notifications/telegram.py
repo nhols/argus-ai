@@ -21,6 +21,7 @@ class TelegramNotificationService(NotificationService):
                 chat_id=chat_id,
                 video=video_file,
                 caption=caption,
+                read_timeout=30,
             )
 
     async def send_message(self, *, chat_id: str, text: str) -> Message:
