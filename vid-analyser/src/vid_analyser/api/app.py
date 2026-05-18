@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from vid_analyser.api.routes import app_api_router, internal_router, webhook_router
 from vid_analyser.api.runtime import initialize_app_state
 from vid_analyser.api.ui import router as ui_router
+from vid_analyser.genai_prices import start_price_updates, stop_price_updates
 
 load_dotenv()
 
@@ -21,10 +22,12 @@ def configure_logfire(app: FastAPI) -> None:
         if not os.getenv("LOGFIRE_TOKEN"):
             logger.info("Logfire token not configured; skipping FastAPI and Pydantic AI instrumentation")
             return
+        start_price_updates()
         logfire.configure()
         logfire.instrument_pydantic_ai(include_binary_content=False)
         logfire.instrument_fastapi(app)
     except Exception:
+        stop_price_updates()
         logger.warning("Logfire not configured; skipping FastAPI and Pydantic AI instrumentation")
 
 
@@ -36,7 +39,10 @@ def is_api_docs_enabled() -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await initialize_app_state(app)
-    yield
+    try:
+        yield
+    finally:
+        stop_price_updates()
 
 
 app = FastAPI(
