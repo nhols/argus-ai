@@ -8,6 +8,7 @@ from pydantic import PositiveInt
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from vid_analyser.agent.memory import GLOBAL_AGENT_MEMORY_NAME, build_memory_instructions
+from vid_analyser.agent.models import DEFAULT_GOOGLE_MODEL
 from vid_analyser.agent.retry import create_google_retry_model
 from vid_analyser.api.runtime import get_app_state, require_active_run_config, set_active_config_state
 from vid_analyser.config_schema import RunConfig
@@ -76,7 +77,7 @@ async def send_telegram_reply(ctx: RunContext[Deps], text: str) -> str:
 
 
 telegram_operator_agent = Agent(
-    model=create_google_retry_model("gemini-3.1-flash-lite-preview"),
+    model=create_google_retry_model(DEFAULT_GOOGLE_MODEL),
     deps_type=Deps,
     output_type=[send_telegram_reply],
 )

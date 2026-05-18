@@ -9,6 +9,7 @@ from pydantic_ai import models
 from pydantic_evals.evaluators import EvaluationReason, Evaluator, EvaluatorContext
 from pydantic_evals.evaluators.llm_as_a_judge import judge_output_expected
 from rapidfuzz.distance import Levenshtein
+from vid_analyser.agent.models import DEFAULT_GOOGLE_MODEL
 from vid_analyser.agent.retry import create_google_retry_model
 from vid_analyser.agent.vid_analyser import VidAnalysis
 from vid_analyser.evals.cases import VideoCaseInput, VideoCaseMetadata
@@ -24,7 +25,7 @@ Return a score from 0 to 1:
 Allow differences in wording, ordering, and level of prose polish. Penalize missing important actions, invented actions,
 incorrect people, incorrect vehicle movement, or contradictions about what happened.
 """
-DEFAULT_EVENTS_DESCRIPTION_JUDGE_MODEL = "gemini-3.1-flash-lite-preview"
+DEFAULT_EVENTS_DESCRIPTION_JUDGE_MODEL = DEFAULT_GOOGLE_MODEL
 
 
 def _missing_expected_output(field_name: str) -> EvaluationReason:

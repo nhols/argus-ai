@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
+from vid_analyser.agent.models import DEFAULT_GOOGLE_MODEL
 from vid_analyser.agent.retry import create_google_retry_model
 from vid_analyser.agent.utils import get_timestamps
 
@@ -44,7 +45,7 @@ class Deps:
 
 
 vid_analyser_agent = Agent[Deps, VidAnalysis](
-    model=create_google_retry_model("gemini-3.1-flash-lite-preview"),
+    model=create_google_retry_model(DEFAULT_GOOGLE_MODEL),
     output_type=VidAnalysis,
     deps_type=Deps,
 )
