@@ -14,6 +14,8 @@ export class WsClient extends EventEmitter {
     super();
     this.url = url;
     this.ws = null;
+    this.messageSeq = 0;
+    this.pendingCommands = new Map();
     this.reconnectDelay = 1_000;
     this.maxReconnectDelay = 60_000;
     this.connect();
@@ -31,7 +33,12 @@ export class WsClient extends EventEmitter {
 
     this.ws.on('message', (raw) => {
       try {
-        this.emit('message', JSON.parse(raw));
+        const msg = JSON.parse(raw);
+        if (msg.messageId && this.pendingCommands.has(msg.messageId)) {
+          msg.command = this.pendingCommands.get(msg.messageId);
+          this.pendingCommands.delete(msg.messageId);
+        }
+        this.emit('message', msg);
       } catch (e) {
         log('Failed to parse WS message:', e.message);
       }
@@ -56,7 +63,10 @@ export class WsClient extends EventEmitter {
 
   /** Send a command to the eufy-security-ws bridge. */
   send(command, params = {}) {
-    log('>>>', command);
-    this.ws.send(JSON.stringify({ messageId: Date.now().toString(), command, ...params }));
+    const messageId = `${Date.now()}-${++this.messageSeq}`;
+    this.pendingCommands.set(messageId, command);
+    log('>>>', command, `(messageId=${messageId})`);
+    this.ws.send(JSON.stringify({ messageId, command, ...params }));
+    return messageId;
   }
 }

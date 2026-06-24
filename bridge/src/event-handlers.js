@@ -21,16 +21,27 @@ const RECORDING_EDGE_EVENTS = new Set([
  * @param {Set<string>}     deps.sentEvents   – storage_paths already sent upstream
  */
 export function createMessageHandler({ queryPoller, downloadManager, captchaServer, sentEvents }) {
+  let activeWsClient = null;
   let connectTimeout = null;
+  let doorbellReady = false;
+  let initialQueryFired = false;
   const lastRecordingEdgeState = new Map();
+  let cloudRefreshRetryTimer = null;
+  let cloudRefreshRetryDelayMs = 5_000;
+  const maxCloudRefreshRetryDelayMs = 2 * 60_000;
 
   // ── lifecycle ──────────────────────────────────────────────────────
 
   /** Called once per (re)connection. */
   function handleOpen(wsClient) {
+    activeWsClient = wsClient;
+    doorbellReady = false;
+    initialQueryFired = false;
+    clearCloudRefreshRetry();
+    cloudRefreshRetryDelayMs = 5_000;
+
     log('Connected — setting up API schema and driver…');
     wsClient.send('set_api_schema', { schemaVersion: 21 });
-    wsClient.send('start_listening');
     wsClient.send('driver.connect');
 
     connectTimeout = setTimeout(() => {
@@ -53,8 +64,18 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
     }
 
     // driver.connect success
-    if (msg.type === 'result' && msg.success === true && connectTimeout) {
+    if (msg.type === 'result' && msg.success === true && msg.command === 'driver.connect') {
       handleDriverConnected();
+    }
+
+    // start_listening state snapshot
+    if (msg.type === 'result' && msg.success === true && msg.command === 'start_listening' && msg.result?.state) {
+      handleStateSnapshot(msg.result.state);
+    }
+
+    // cloud refresh completed
+    if (msg.type === 'result' && msg.success === true && msg.command === 'driver.poll_refresh') {
+      handleCloudRefreshComplete();
     }
 
     // detection / trigger events
@@ -79,9 +100,62 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
 
   function handleDriverConnected() {
     log('✅ Driver connected, clearing timeout and firing initial query…');
-    clearTimeout(connectTimeout);
-    connectTimeout = null;
-    queryPoller.fireQuery();
+    if (connectTimeout) {
+      clearTimeout(connectTimeout);
+      connectTimeout = null;
+    }
+    activeWsClient?.send('start_listening');
+  }
+
+  function handleStateSnapshot(state) {
+    const stations = Array.isArray(state.stations) ? state.stations : [];
+    const devices = Array.isArray(state.devices) ? state.devices : [];
+    const hasHomebase = containsSerial(stations, HOMEBASE_SN);
+    const hasDoorbell = containsSerial(devices, DOORBELL_SN);
+
+    log(`State snapshot: ${stations.length} station(s), ${devices.length} device(s), homebase=${hasHomebase}, doorbell=${hasDoorbell}`);
+
+    if (hasDoorbell) {
+      doorbellReady = true;
+      clearCloudRefreshRetry();
+      cloudRefreshRetryDelayMs = 5_000;
+      if (!initialQueryFired) {
+        initialQueryFired = true;
+        queryPoller.fireQuery();
+      }
+      return;
+    }
+
+    doorbellReady = false;
+    log(`⚠️ Doorbell ${DOORBELL_SN} missing from eufy-ws state; refreshing Eufy cloud device data…`);
+    scheduleCloudRefresh(0);
+  }
+
+  function handleCloudRefreshComplete() {
+    log('Cloud/device refresh completed; requesting fresh state snapshot…');
+    activeWsClient?.send('start_listening');
+  }
+
+  function scheduleCloudRefresh(delayMs = cloudRefreshRetryDelayMs) {
+    if (cloudRefreshRetryTimer) return;
+
+    cloudRefreshRetryTimer = setTimeout(() => {
+      cloudRefreshRetryTimer = null;
+      activeWsClient?.send('driver.poll_refresh');
+      cloudRefreshRetryDelayMs = Math.min(cloudRefreshRetryDelayMs * 2, maxCloudRefreshRetryDelayMs);
+    }, delayMs);
+  }
+
+  function clearCloudRefreshRetry() {
+    if (cloudRefreshRetryTimer) {
+      clearTimeout(cloudRefreshRetryTimer);
+      cloudRefreshRetryTimer = null;
+    }
+  }
+
+  function containsSerial(items, serialNumber) {
+    if (!serialNumber) return false;
+    return items.some((item) => JSON.stringify(item).includes(serialNumber));
   }
 
   function handleCaptchaRequest(msg) {
@@ -126,6 +200,11 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
 
     // Always forward to the poller (no-op if it isn't waiting)
     queryPoller.onQueryResult(data);
+
+    if (!doorbellReady) {
+      log(`Doorbell ${DOORBELL_SN} is not loaded in eufy-ws yet; deferring DB result handling.`);
+      return;
+    }
 
     // For the initial (non-polled) query, handle directly
     if (!queryPoller.polling) {
@@ -172,6 +251,10 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
 
   function handleError(msg) {
     log('❌ ERROR:', msg.error);
+    if (msg.command === 'driver.poll_refresh') {
+      log(`Cloud/device refresh failed; retrying in ${cloudRefreshRetryDelayMs / 1000}s…`);
+      scheduleCloudRefresh();
+    }
   }
 
   return { handleOpen, handleMessage };
