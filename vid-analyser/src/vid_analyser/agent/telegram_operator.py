@@ -118,6 +118,7 @@ def _summarize_analysis_json(result_json: str) -> str:
         interesting = {
             "parking_spot_status": parsed.get("parking_spot_status"),
             "number_plate": parsed.get("number_plate"),
+            "vehicle_description": parsed.get("vehicle_description"),
             "events_description": parsed.get("events_description"),
             "ir_mode": parsed.get("ir_mode"),
         }

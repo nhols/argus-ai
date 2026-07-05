@@ -5,11 +5,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from pydantic_ai import BinaryContent  # noqa: E402
+from vid_analyser.agent.models import VidAnalysis  # noqa: E402
 from vid_analyser.config_schema import OverlayConfig, RunConfig  # noqa: E402
 from vid_analyser.db import init_database  # noqa: E402
 from vid_analyser.overlay import _build_svg_overlay  # noqa: E402
@@ -17,16 +19,18 @@ from vid_analyser.overlay_schema import Color, ZoneDefinition  # noqa: E402
 from vid_analyser.pipeline import run as pipeline_run  # noqa: E402
 
 
-class _StubVidAnalyserAgent:
+class _StubVideoAnalyser:
     def __init__(self):
         self.calls = []
 
-    async def run(self, analysis_inputs, **kwargs):
-        self.calls.append((analysis_inputs, kwargs))
-        return SimpleNamespace(
-            output=SimpleNamespace(
-                model_dump_json=lambda **_kwargs: '{"events_description":"ok"}',
-            )
+    async def __call__(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return VidAnalysis(
+            ir_mode=False,
+            parking_spot_status="occupied",
+            number_plate="HX72 LLM",
+            vehicle_description="a dark blue compact SUV",
+            events_description="A car occupies the user's parking spot.",
         )
 
 
@@ -39,78 +43,55 @@ class _StubNotifierAgent:
         return SimpleNamespace(output="sent")
 
 
-def test_run_attaches_static_image_identifier_in_user_message(tmp_path, monkeypatch):
-    video_path = tmp_path / "clip.mp4"
-    video_path.write_bytes(b"video")
-    overlay_path = tmp_path / "clip_zones.png"
-    overlay_path.write_bytes(b"png")
-
-    stub_vid_agent = _StubVidAnalyserAgent()
-    monkeypatch.setattr(pipeline_run, "vid_analyser_agent", stub_vid_agent)
-    monkeypatch.setattr(pipeline_run, "notifier_agent", _StubNotifierAgent())
-    monkeypatch.setattr(
-        pipeline_run,
-        "generate_overlay_reference_frame",
-        lambda _video, _zones: overlay_path,
-    )
-
-    config = RunConfig(
+def _parking_config() -> RunConfig:
+    return RunConfig(
         overlay=OverlayConfig(
             zones=[
                 ZoneDefinition(
-                    label="Bay 1",
-                    color=Color.RED,
-                    polygon=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)],
-                )
+                    label="Neighbour's parking spot",
+                    polygon=[(0.0, 0.0), (0.4, 0.0), (0.4, 1.0)],
+                ),
+                ZoneDefinition(
+                    label="User's parking spot",
+                    polygon=[(0.6, 0.0), (1.0, 0.0), (1.0, 1.0)],
+                ),
             ]
         )
     )
 
-    asyncio.run(pipeline_run.run(video_path, config, "video/mp4"))
 
-    analysis_inputs, kwargs = stub_vid_agent.calls[0]
-    assert analysis_inputs[2] == (
-        "File static_image is a static reference image taken from this video. "
-        "The overlay zones below relate to static_image. "
-        "Pay close attention to those zones when analysing static_image and the video.\n"
-        "The overlay zones for file static_image are:\nBay 1 (color: RED)"
-    )
-    assert analysis_inputs[3] == "This is file static_image from the video:"
-    assert isinstance(analysis_inputs[4], BinaryContent)
-    assert analysis_inputs[4].identifier == "static_image"
-    assert analysis_inputs[4].media_type == "image/png"
-    assert not hasattr(kwargs["deps"], "overlay_zones_descriptions")
-
-
-def test_analyse_video_cleans_up_overlay_reference_frame(tmp_path, monkeypatch):
+def test_run_uses_combined_analyser_and_passes_vid_analysis_to_notifier(
+    tmp_path, monkeypatch
+):
     video_path = tmp_path / "clip.mp4"
     video_path.write_bytes(b"video")
-    overlay_path = tmp_path / "clip_zones.png"
-    overlay_path.write_bytes(b"png")
 
-    stub_vid_agent = _StubVidAnalyserAgent()
-    monkeypatch.setattr(pipeline_run, "vid_analyser_agent", stub_vid_agent)
-    monkeypatch.setattr(
-        pipeline_run,
-        "generate_overlay_reference_frame",
-        lambda _video, _zones: overlay_path,
-    )
+    stub_video_analyser = _StubVideoAnalyser()
+    stub_notifier = _StubNotifierAgent()
+    monkeypatch.setattr(pipeline_run, "analyse_video", stub_video_analyser)
+    monkeypatch.setattr(pipeline_run, "notifier_agent", stub_notifier)
 
-    config = RunConfig(
-        overlay=OverlayConfig(
-            zones=[
-                ZoneDefinition(
-                    label="Bay 1",
-                    color=Color.RED,
-                    polygon=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)],
-                )
-            ]
-        )
-    )
+    asyncio.run(pipeline_run.run(video_path, _parking_config(), "video/mp4"))
 
-    asyncio.run(pipeline_run.analyse_video(video_path, config, "video/mp4"))
+    analyser_args, _ = stub_video_analyser.calls[0]
+    assert analyser_args[0] == video_path
+    assert analyser_args[1] == "video/mp4"
+    assert [zone.label for zone in analyser_args[2]] == [
+        "Neighbour's parking spot",
+        "User's parking spot",
+    ]
+    notifier_call = stub_notifier.calls[0]
+    assert '"parking_spot_status": "occupied"' in notifier_call["user_prompt"]
+    assert '"vehicle_description": "a dark blue compact SUV"' in notifier_call["user_prompt"]
+    assert '"events_description": "A car occupies' in notifier_call["user_prompt"]
 
-    assert not overlay_path.exists()
+
+def test_run_requires_parking_overlay(tmp_path):
+    video_path = tmp_path / "clip.mp4"
+    video_path.write_bytes(b"video")
+
+    with pytest.raises(ValueError, match="requires a parking spot overlay"):
+        asyncio.run(pipeline_run.run(video_path, RunConfig(), "video/mp4"))
 
 
 def test_build_svg_overlay_uses_thicker_zone_strokes():
@@ -129,13 +110,15 @@ def test_build_svg_overlay_uses_thicker_zone_strokes():
     assert 'stroke-width="4"' in svg
 
 
-def test_run_persists_analysis_trace_ids_and_links_notification_to_analysis(tmp_path, monkeypatch):
+def test_run_persists_analysis_trace_ids_and_links_notification_to_analysis(
+    tmp_path, monkeypatch
+):
     video_path = tmp_path / "clip.mp4"
     video_path.write_bytes(b"video")
 
-    stub_vid_agent = _StubVidAnalyserAgent()
+    stub_video_analyser = _StubVideoAnalyser()
     stub_notifier_agent = _StubNotifierAgent()
-    monkeypatch.setattr(pipeline_run, "vid_analyser_agent", stub_vid_agent)
+    monkeypatch.setattr(pipeline_run, "analyse_video", stub_video_analyser)
     monkeypatch.setattr(pipeline_run, "notifier_agent", stub_notifier_agent)
 
     class _FakeSpanContext:
@@ -153,9 +136,11 @@ def test_run_persists_analysis_trace_ids_and_links_notification_to_analysis(tmp_
         def get_span_context(self):
             return _FakeSpanContext()
 
-    monkeypatch.setattr(pipeline_run.logfire, "span", lambda *_args, **_kwargs: _FakeSpan())
+    monkeypatch.setattr(
+        pipeline_run.logfire, "span", lambda *_args, **_kwargs: _FakeSpan()
+    )
 
-    config = RunConfig()
+    config = _parking_config()
 
     async def _run():
         db = await init_database(str(tmp_path / "vid-analyser.db"))
@@ -173,20 +158,29 @@ def test_run_persists_analysis_trace_ids_and_links_notification_to_analysis(tmp_
     analysis_records, notifier_calls = asyncio.run(_run())
 
     assert len(analysis_records) == 1
-    assert analysis_records[0].clip_start_time == datetime.fromisoformat("2026-04-10T09:00:00+00:00")
-    assert analysis_records[0].clip_end_time == datetime.fromisoformat("2026-04-10T09:00:30+00:00")
+    assert analysis_records[0].clip_start_time == datetime.fromisoformat(
+        "2026-04-10T09:00:00+00:00"
+    )
+    assert analysis_records[0].clip_end_time == datetime.fromisoformat(
+        "2026-04-10T09:00:30+00:00"
+    )
     assert analysis_records[0].logfire_trace_id == "019d78c3bdb09b4a7f86016d6b87d8e5"
     assert analysis_records[0].logfire_span_id == "5e4efff3ff52f591"
     assert notifier_calls[0]["deps"].vid_analysis_id == analysis_records[0].id
+    assert notifier_calls[0]["deps"].video_start_time == datetime.fromisoformat(
+        "2026-04-10T09:00:00+00:00"
+    )
 
 
-def test_run_discards_video_while_vid_analyser_is_snoozed(tmp_path, monkeypatch, caplog):
+def test_run_discards_video_while_vid_analyser_is_snoozed(
+    tmp_path, monkeypatch, caplog
+):
     video_path = tmp_path / "clip.mp4"
     video_path.write_bytes(b"video")
 
-    stub_vid_agent = _StubVidAnalyserAgent()
+    stub_video_analyser = _StubVideoAnalyser()
     stub_notifier_agent = _StubNotifierAgent()
-    monkeypatch.setattr(pipeline_run, "vid_analyser_agent", stub_vid_agent)
+    monkeypatch.setattr(pipeline_run, "analyse_video", stub_video_analyser)
     monkeypatch.setattr(pipeline_run, "notifier_agent", stub_notifier_agent)
     caplog.set_level(logging.INFO, logger=pipeline_run.logger.name)
 
@@ -209,6 +203,6 @@ def test_run_discards_video_while_vid_analyser_is_snoozed(tmp_path, monkeypatch,
 
     assert result is None
     assert analysis_records == []
-    assert stub_vid_agent.calls == []
+    assert stub_video_analyser.calls == []
     assert stub_notifier_agent.calls == []
     assert "Discarding video analysis while snoozed" in caplog.text

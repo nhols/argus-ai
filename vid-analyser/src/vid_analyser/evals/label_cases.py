@@ -11,7 +11,8 @@ SRC_DIR = Path(__file__).resolve().parents[2]
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from vid_analyser.agent.vid_analyser import ParkingSpotStatus, VidAnalysis  # noqa: E402
+from vid_analyser.agent.models import ParkingSpotStatus  # noqa: E402
+from vid_analyser.agent.vid_analyser import VidAnalysis  # noqa: E402
 from vid_analyser.evals import VideoEvalCase, load_video_case, make_video_case, save_video_case  # noqa: E402
 
 PARKING_STATUSES: tuple[ParkingSpotStatus, ...] = (
@@ -170,6 +171,10 @@ def _render_case_form(paths: EvalDataPaths, selected_video: Path) -> None:
             "Number plate",
             value=(existing_output.number_plate or "") if existing_output else "",
         )
+        vehicle_description = st.text_input(
+            "Vehicle description",
+            value=(existing_output.vehicle_description or "") if existing_output else "",
+        )
         events_description = st.text_area(
             "Events description",
             value=existing_output.events_description if existing_output else "",
@@ -192,6 +197,7 @@ def _render_case_form(paths: EvalDataPaths, selected_video: Path) -> None:
             ir_mode=ir_mode,
             parking_spot_status=parking_spot_status,
             number_plate=number_plate,
+            vehicle_description=vehicle_description,
             events_description=events_description,
             tags=tags,
         )
@@ -206,6 +212,7 @@ def _save_case(
     ir_mode: bool,
     parking_spot_status: ParkingSpotStatus,
     number_plate: str,
+    vehicle_description: str,
     events_description: str,
     tags: list[str],
 ) -> None:
@@ -213,6 +220,7 @@ def _save_case(
         ir_mode=ir_mode,
         parking_spot_status=parking_spot_status,
         number_plate=number_plate.strip() or None,
+        vehicle_description=vehicle_description.strip() or None,
         events_description=events_description.strip(),
     )
     case = make_video_case(
