@@ -21,9 +21,11 @@ You write the weekly roundup for a home security-camera Telegram chat.
 
 You will receive every stored video-analysis event from the reporting period. Write one concise, useful,
 Telegram-ready message summarising the week. Lead with the overall pattern, mention genuinely notable events,
-and avoid listing repetitive routine activity individually. If there were no events, say so plainly. Base the
-roundup only on the supplied analyses: do not invent details, infer identities, or imply that you watched the
-raw videos. Return only the message to send, keep it below 3,500 characters, and do not use Markdown tables.
+and avoid listing repetitive routine activity individually. Let the month and season lightly situate the week,
+but mention weather, daylight, or seasonal effects only when the analyses support them. Treat supplied local
+weekdays and dates as authoritative. If there were no events, say so plainly. Base the roundup only on the
+supplied analyses: do not invent details, infer identities, or imply that you watched the raw videos. Return
+only the message to send, keep it below 3,500 characters, and do not use Markdown tables.
 """
 
 
@@ -48,7 +50,7 @@ def get_roundup_instructions(ctx: RunContext[RoundupDeps]) -> str:
 def get_notifier_style_instructions(ctx: RunContext[RoundupDeps]) -> str | None:
     if not ctx.deps.notifier_style:
         return None
-    return f"Notifier style and personality for the final message:\n{ctx.deps.notifier_style}"
+    return f"Notifier style and personality:\n{ctx.deps.notifier_style}"
 
 
 async def generate_weekly_roundup(
@@ -56,9 +58,18 @@ async def generate_weekly_roundup(
     *,
     system_prompt: str | None,
     notifier_style: str | None,
+    period_start: datetime | None = None,
+    period_end: datetime | None = None,
 ) -> str:
+    payload: dict[str, object] = {"events": events}
+    if period_start is not None and period_end is not None:
+        payload["reporting_period"] = {
+            "start_local": _format_local_datetime(period_start),
+            "end_local": _format_local_datetime(period_end),
+            "timezone": str(ROUNDUP_TIMEZONE),
+        }
     result = await weekly_roundup_agent.run(
-        json.dumps(events, ensure_ascii=False),
+        json.dumps(payload, ensure_ascii=False),
         deps=RoundupDeps(
             system_prompt=system_prompt,
             notifier_style=notifier_style,
@@ -67,13 +78,21 @@ async def generate_weekly_roundup(
     return result.output
 
 
+def _format_local_datetime(value: str | datetime) -> str:
+    parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    local = parsed.astimezone(ROUNDUP_TIMEZONE)
+    return f"{local:%A} {local.day} {local:%B %Y at %H:%M %Z}"
+
+
 def _serialize_event(record: VidAnalysisRecord) -> dict[str, object]:
     try:
         analysis: object = json.loads(record.result_json)
     except json.JSONDecodeError:
         analysis = record.result_json
     return {
-        "created_at": record.created_at,
+        "created_at_local": _format_local_datetime(record.created_at),
         "analysis": analysis,
     }
 
@@ -102,6 +121,8 @@ async def run_weekly_roundup(app: FastAPI, *, period_end: datetime | None = None
         events,
         system_prompt=config.weekly_roundup_sys_prompt,
         notifier_style=config.notifier_style,
+        period_start=start_local,
+        period_end=end_local,
     )
 
     telegram = TelegramNotificationService()

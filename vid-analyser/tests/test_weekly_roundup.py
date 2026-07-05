@@ -4,7 +4,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from vid_analyser.agent.weekly_roundup import RoundupDeps, get_roundup_instructions
+from vid_analyser.agent.weekly_roundup import (
+    RoundupDeps,
+    _format_local_datetime,
+    get_roundup_instructions,
+)
 from vid_analyser.schedule import next_weekly_run
 
 
@@ -46,3 +50,9 @@ def test_roundup_system_prompt_can_override_default() -> None:
     )
 
     assert get_roundup_instructions(ctx) == "Custom weekly instructions"
+
+
+def test_roundup_datetime_includes_authoritative_london_weekday() -> None:
+    assert _format_local_datetime("2026-07-05T23:30:00+00:00") == (
+        "Monday 6 July 2026 at 00:30 BST"
+    )
