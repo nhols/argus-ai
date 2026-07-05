@@ -155,6 +155,7 @@ Use the repo-root `.env.example` as the canonical template for the Docker Compos
 | Variable | Purpose | Where to find it |
 |---|---|---|
 | `EUFY_WS_URL` | Manual override for the websocket endpoint that the bridge connects to. In Docker Compose it is fixed to `ws://eufy-ws:3000`. | `bridge/src/config.js`, `docker-compose.yml` |
+| `EUFY_TIME_ZONE` | IANA timezone used to align Eufy's local recording paths and database query dates. Defaults to `Europe/London` and follows GMT/BST automatically. | `.env.example`, `bridge/src/config.js`, `docker-compose.yml` |
 | `OUTPUT_DIR` | Manual override for where `eufy-bridge` writes temporary raw streams and MP4 files before upload. | `bridge/src/config.js` |
 | `VID_ANALYSER_SHARED_INPUT_ROOT` | Optional shared filesystem root used when the bridge and analyser can hand off clips by path instead of multipart upload. The API only accepts shared paths under this root. | `docker-compose.yml`, `bridge/src/config.js`, `vid-analyser/src/vid_analyser/api/app.py` |
 | `CAPTCHA_PORT` | Port for the bridge's local captcha UI and health check. Compose sets it to `8080`. | `bridge/src/captcha-server.js`, `docker-compose.yml`, `Makefile` |

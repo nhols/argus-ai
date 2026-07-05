@@ -1,5 +1,10 @@
 import { log } from './logger.js';
-import { DOORBELL_SN, HOMEBASE_SN, CONNECT_TIMEOUT_MS } from './config.js';
+import {
+  DOORBELL_SN,
+  HOMEBASE_SN,
+  CONNECT_TIMEOUT_MS,
+  RECONCILIATION_INTERVAL_MS,
+} from './config.js';
 
 const RECORDING_EDGE_EVENTS = new Set([
   'motion detected',
@@ -25,8 +30,10 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
   let connectTimeout = null;
   let doorbellReady = false;
   let initialQueryFired = false;
+  let awaitingInitialQuery = false;
   const lastRecordingEdgeState = new Map();
   let cloudRefreshRetryTimer = null;
+  let reconciliationTimer = null;
   let cloudRefreshRetryDelayMs = 5_000;
   const maxCloudRefreshRetryDelayMs = 2 * 60_000;
 
@@ -37,7 +44,9 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
     activeWsClient = wsClient;
     doorbellReady = false;
     initialQueryFired = false;
+    awaitingInitialQuery = false;
     clearCloudRefreshRetry();
+    clearReconciliationTimer();
     cloudRefreshRetryDelayMs = 5_000;
 
     log('Connected — setting up API schema and driver…');
@@ -119,14 +128,17 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
       doorbellReady = true;
       clearCloudRefreshRetry();
       cloudRefreshRetryDelayMs = 5_000;
+      startReconciliationTimer();
       if (!initialQueryFired) {
         initialQueryFired = true;
+        awaitingInitialQuery = true;
         queryPoller.fireQuery();
       }
       return;
     }
 
     doorbellReady = false;
+    clearReconciliationTimer();
     log(`⚠️ Doorbell ${DOORBELL_SN} missing from eufy-ws state; refreshing Eufy cloud device data…`);
     scheduleCloudRefresh(0);
   }
@@ -153,6 +165,21 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
     }
   }
 
+  function startReconciliationTimer() {
+    if (reconciliationTimer) return;
+    reconciliationTimer = setInterval(() => {
+      reconcileNewEvents('periodic');
+    }, RECONCILIATION_INTERVAL_MS);
+    reconciliationTimer.unref?.();
+  }
+
+  function clearReconciliationTimer() {
+    if (reconciliationTimer) {
+      clearInterval(reconciliationTimer);
+      reconciliationTimer = null;
+    }
+  }
+
   function containsSerial(items, serialNumber) {
     if (!serialNumber) return false;
     return items.some((item) => JSON.stringify(item).includes(serialNumber));
@@ -175,14 +202,38 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
 
     if (typeof state !== 'boolean') return;
 
-    const previousState = lastRecordingEdgeState.get(eventName);
-    lastRecordingEdgeState.set(eventName, state);
-    if (state !== false || previousState === false) return;
+    const previous = lastRecordingEdgeState.get(eventName);
+    if (state === true) {
+      lastRecordingEdgeState.set(eventName, {
+        state,
+        startedAt: previous?.state === true ? previous.startedAt : new Date(),
+      });
+      return;
+    }
 
-    const newEvents = await queryPoller.pollForNewEvents(sentEvents);
-    if (newEvents.length > 0) {
-      for (const evt of newEvents) sentEvents.add(evt.storage_path);
-      downloadManager.enqueue(newEvents);
+    lastRecordingEdgeState.set(eventName, { state, startedAt: previous?.startedAt ?? null });
+    if (state !== false || previous?.state === false) return;
+
+    const newEvents = await queryPoller.pollForNewEvents(sentEvents, previous?.startedAt ?? null);
+    enqueueNewEvents(newEvents);
+  }
+
+  function enqueueNewEvents(events) {
+    if (events.length === 0) return;
+    for (const event of events) sentEvents.add(event.storage_path);
+    downloadManager.enqueue(events);
+  }
+
+  async function reconcileNewEvents(reason) {
+    if (!doorbellReady || awaitingInitialQuery) return;
+    try {
+      const newEvents = await queryPoller.findNewEvents(sentEvents);
+      if (newEvents.length > 0) {
+        log(`🔄 ${reason} reconciliation found ${newEvents.length} unseen event(s)`);
+        enqueueNewEvents(newEvents);
+      }
+    } catch (error) {
+      log(`❌ ${reason} reconciliation failed:`, error.message);
     }
   }
 
@@ -202,12 +253,17 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
     queryPoller.onQueryResult(data);
 
     if (!doorbellReady) {
+      if (awaitingInitialQuery) {
+        awaitingInitialQuery = false;
+        initialQueryFired = false;
+      }
       log(`Doorbell ${DOORBELL_SN} is not loaded in eufy-ws yet; deferring DB result handling.`);
       return;
     }
 
-    // For the initial (non-polled) query, handle directly
-    if (!queryPoller.polling) {
+    // Establish a fresh baseline after each connection.
+    if (awaitingInitialQuery) {
+      awaitingInitialQuery = false;
       const doorbellEvents = data.filter((e) => e.device_sn === DOORBELL_SN);
       log(`Doorbell events: ${doorbellEvents.length}`);
 

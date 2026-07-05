@@ -8,8 +8,10 @@ export const VID_ANALYSER_USE_SHARED_INPUT =
   (process.env.VID_ANALYSER_USE_SHARED_INPUT ?? 'false').trim().toLowerCase() === 'true';
 
 export const CONNECT_TIMEOUT_MS = 10 * 60 * 1000;       // 10 minutes
-export const RECORDING_AVAILABILITY_POLL_DELAYS = [0, 1000, 2000, 5000, 10000]; // 5 attempts over ~18s
+export const RECORDING_AVAILABILITY_POLL_DELAYS = [0, 1000, 2000, 5000, 10000, 20000, 40000];
 export const QUERY_RESPONSE_TIMEOUT_MS = 30_000;
+export const RECONCILIATION_INTERVAL_MS = 60_000;
+export const EUFY_TIME_ZONE = process.env.EUFY_TIME_ZONE ?? 'Europe/London';
 
 if (!HOMEBASE_SN) throw new Error('Missing HOMEBASE_SN');
 if (!DOORBELL_SN) throw new Error('Missing DOORBELL_SN');

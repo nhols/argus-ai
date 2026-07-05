@@ -60,6 +60,7 @@ services:
       - VID_ANALYSER_API_KEY=${VID_ANALYSER_API_KEY}
       - OUTPUT_DIR=${SHARED_VIDEO_DIR}
       - VID_ANALYSER_USE_SHARED_INPUT=true
+      - EUFY_TIME_ZONE=${EUFY_TIME_ZONE:-Europe/London}
       - CAPTCHA_PORT=8080
 
   vid-analyser-api:
