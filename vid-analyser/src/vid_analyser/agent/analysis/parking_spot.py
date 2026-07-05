@@ -128,6 +128,7 @@ async def assess_parking_spot(
     *,
     count: int = DEFAULT_SNAPSHOT_COUNT,
     model_name: str = DEFAULT_GOOGLE_MODEL,
+    system_prompt: str | None = None,
 ) -> ParkingSpotAssessment:
     with boxed_snapshots(video_path, zone, count) as paths:
         prompt: list[str | BinaryContent] = [
@@ -145,11 +146,12 @@ async def assess_parking_spot(
                     ),
                 ]
             )
-        if model_name == DEFAULT_GOOGLE_MODEL:
-            result = await parking_spot_agent.run(prompt)
+        run_kwargs = {}
+        if model_name != DEFAULT_GOOGLE_MODEL:
+            run_kwargs["model"] = create_google_retry_model(model_name)
+        if system_prompt is None:
+            result = await parking_spot_agent.run(prompt, **run_kwargs)
         else:
-            result = await parking_spot_agent.run(
-                prompt,
-                model=create_google_retry_model(model_name),
-            )
+            with parking_spot_agent.override(instructions=system_prompt):
+                result = await parking_spot_agent.run(prompt, **run_kwargs)
         return result.output

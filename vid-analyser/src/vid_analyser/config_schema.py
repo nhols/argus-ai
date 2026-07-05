@@ -11,8 +11,10 @@ class RunConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     overlay: OverlayConfig | None = None
     video_analyser_sys_prompt: str | None = None
+    parking_spot_sys_prompt: str | None = None
     notifier_sys_prompt: str | None = None
     notifier_style: str | None = None
+    weekly_roundup_sys_prompt: str | None = None
     telegram_operator_sys_prompt: str | None = None
     telegram_chat_id: str | None = None
     previous_messages_limit: int = 10

@@ -15,6 +15,7 @@ async def analyse_video(
     overlay_zones: list[ZoneDefinition],
     *,
     scene_system_prompt: str | None,
+    parking_spot_system_prompt: str | None = None,
     video_start_time: datetime,
 ) -> VidAnalysis:
     with tempfile.TemporaryDirectory(
@@ -25,7 +26,15 @@ async def analyse_video(
             overlay_zones,
             output_dir=Path(directory),
         )
-        parking = await assess_parking_spot(video_path, find_zone(overlay_zones))
+        parking_zone = find_zone(overlay_zones)
+        if parking_spot_system_prompt is None:
+            parking = await assess_parking_spot(video_path, parking_zone)
+        else:
+            parking = await assess_parking_spot(
+                video_path,
+                parking_zone,
+                system_prompt=parking_spot_system_prompt,
+            )
         scene = await analyse_scene(
             video_path,
             content_type,

@@ -64,6 +64,7 @@ async def run(
             content_type,
             config.overlay.zones,
             scene_system_prompt=config.video_analyser_sys_prompt,
+            parking_spot_system_prompt=config.parking_spot_sys_prompt,
             video_start_time=video_start_time,
         )
         analysis_record = None

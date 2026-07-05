@@ -11,6 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
+from vid_analyser.agent.weekly_roundup import run_weekly_roundup
 from vid_analyser.api.runtime import (
     get_app_state,
     require_active_run_config,
@@ -243,6 +244,14 @@ async def _cleanup_local_storage_videos(app: FastAPI) -> None:
 
 
 router = APIRouter(prefix="/internal", dependencies=[Depends(require_vid_analyser_api_key)])
+
+
+@router.post("/weekly-roundup")
+async def trigger_weekly_roundup(request: Request):
+    message = await run_weekly_roundup(request.app)
+    if message is None:
+        return {"status": "skipped", "message": None}
+    return {"status": "sent", "message": message}
 
 
 @router.post("/analyse-video")

@@ -35,9 +35,7 @@ def _load_config(path: Path) -> RunConfig:
 
 def main() -> None:
     repo_root = _repo_root()
-    parser = argparse.ArgumentParser(
-        description="Run the current video analyser agent against an eval dataset."
-    )
+    parser = argparse.ArgumentParser(description="Run the current video analyser agent against an eval dataset.")
     parser.add_argument(
         "--manifest",
         type=Path,
@@ -53,9 +51,7 @@ def main() -> None:
     parser.add_argument("--max-concurrency", type=int, default=10)
     args = parser.parse_args()
 
-    logfire.configure(
-        send_to_logfire="if-token-present", service_name="vid-analyser-evals"
-    )
+    logfire.configure(send_to_logfire="if-token-present", service_name="vid-analyser-evals")
 
     config = _load_config(args.config_json)
     layout = load_video_dataset_manifest(args.manifest)
@@ -70,6 +66,7 @@ def main() -> None:
             "video/mp4",
             config.overlay.zones,
             scene_system_prompt=config.video_analyser_sys_prompt,
+            parking_spot_system_prompt=config.parking_spot_sys_prompt,
             video_start_time=datetime.now(UTC),
         )
 

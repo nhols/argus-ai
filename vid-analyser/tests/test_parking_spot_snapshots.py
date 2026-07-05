@@ -104,6 +104,12 @@ def test_assess_parking_spot_sends_ordered_identified_snapshots(tmp_path, monkey
     class StubAgent:
         def __init__(self):
             self.prompt = None
+            self.instructions = None
+
+        @contextmanager
+        def override(self, *, instructions):
+            self.instructions = instructions
+            yield
 
         async def run(self, prompt):
             self.prompt = prompt
@@ -118,9 +124,17 @@ def test_assess_parking_spot_sends_ordered_identified_snapshots(tmp_path, monkey
     monkeypatch.setattr(snapshots_module, "parking_spot_agent", agent)
     zone = ZoneDefinition(label="spot", polygon=[(0, 0), (1, 0), (1, 1)])
 
-    result = asyncio.run(assess_parking_spot(tmp_path / "clip.mp4", zone, count=2))
+    result = asyncio.run(
+        assess_parking_spot(
+            tmp_path / "clip.mp4",
+            zone,
+            count=2,
+            system_prompt="Custom parking instructions",
+        )
+    )
 
     assert result.parking_spot_status == "vacant"
+    assert agent.instructions == "Custom parking instructions"
     images = [part for part in agent.prompt if isinstance(part, BinaryContent)]
     assert [image.identifier for image in images] == ["snapshot_01", "snapshot_02"]
     assert [image.data for image in images] == [b"one", b"two"]

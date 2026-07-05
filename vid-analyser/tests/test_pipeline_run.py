@@ -45,6 +45,7 @@ class _StubNotifierAgent:
 
 def _parking_config() -> RunConfig:
     return RunConfig(
+        parking_spot_sys_prompt="custom parking prompt",
         overlay=OverlayConfig(
             zones=[
                 ZoneDefinition(
@@ -73,13 +74,14 @@ def test_run_uses_combined_analyser_and_passes_vid_analysis_to_notifier(
 
     asyncio.run(pipeline_run.run(video_path, _parking_config(), "video/mp4"))
 
-    analyser_args, _ = stub_video_analyser.calls[0]
+    analyser_args, analyser_kwargs = stub_video_analyser.calls[0]
     assert analyser_args[0] == video_path
     assert analyser_args[1] == "video/mp4"
     assert [zone.label for zone in analyser_args[2]] == [
         "Neighbour's parking spot",
         "User's parking spot",
     ]
+    assert analyser_kwargs["parking_spot_system_prompt"] == "custom parking prompt"
     notifier_call = stub_notifier.calls[0]
     assert '"parking_spot_status": "occupied"' in notifier_call["user_prompt"]
     assert '"vehicle_description": "a dark blue compact SUV"' in notifier_call["user_prompt"]

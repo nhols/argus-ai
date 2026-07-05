@@ -1,14 +1,18 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from contextlib import suppress
 
 import logfire
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from vid_analyser.agent.weekly_roundup import run_weekly_roundup
 from vid_analyser.api.routes import app_api_router, internal_router, webhook_router
 from vid_analyser.api.runtime import initialize_app_state
 from vid_analyser.api.ui import router as ui_router
 from vid_analyser.genai_prices import start_price_updates, stop_price_updates
+from vid_analyser.schedule import run_weekly_schedule
 
 load_dotenv()
 
@@ -39,9 +43,20 @@ def is_api_docs_enabled() -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await initialize_app_state(app)
+
+    async def roundup_job(scheduled_for):
+        return await run_weekly_roundup(app, period_end=scheduled_for)
+
+    roundup_task = asyncio.create_task(
+        run_weekly_schedule(roundup_job, job_name="weekly roundup"),
+        name="weekly-roundup",
+    )
     try:
         yield
     finally:
+        roundup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await roundup_task
         stop_price_updates()
 
 

@@ -120,7 +120,7 @@ class Database:
         date_from: str | None = None,
         date_to: str | None = None,
         keyword: str | None = None,
-        limit: int = 10,
+        limit: int | None = 10,
     ) -> list[VidAnalysisRecord]:
         stmt = select(VidAnalysisRecord)
         if date_from is not None:
@@ -129,7 +129,9 @@ class Database:
             stmt = stmt.where(VidAnalysisRecord.created_at <= date_to)
         if keyword is not None and keyword.strip():
             stmt = stmt.where(VidAnalysisRecord.result_json.ilike(f"%{keyword.strip()}%"))
-        stmt = stmt.order_by(VidAnalysisRecord.id.desc()).limit(limit)
+        stmt = stmt.order_by(VidAnalysisRecord.id.desc())
+        if limit is not None:
+            stmt = stmt.limit(limit)
         async with self._session_factory() as session:
             result = await session.execute(stmt)
             return list(result.scalars())

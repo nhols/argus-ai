@@ -45,8 +45,10 @@ def test_config_ui_loads_and_updates_config(tmp_path, monkeypatch):
     initial_config = {
         "overlay": {"zones": []},
         "video_analyser_sys_prompt": "initial analyser prompt",
+        "parking_spot_sys_prompt": "initial parking prompt",
         "notifier_sys_prompt": "initial notifier prompt",
         "notifier_style": "initial notifier style",
+        "weekly_roundup_sys_prompt": "initial roundup prompt",
         "telegram_operator_sys_prompt": "initial telegram operator prompt",
         "telegram_chat_id": None,
         "previous_messages_limit": 5,
@@ -57,8 +59,10 @@ def test_config_ui_loads_and_updates_config(tmp_path, monkeypatch):
     updated_config = {
         "overlay": {"zones": []},
         "video_analyser_sys_prompt": "updated analyser prompt",
+        "parking_spot_sys_prompt": "updated parking prompt",
         "notifier_sys_prompt": "updated notifier prompt",
         "notifier_style": "updated notifier style",
+        "weekly_roundup_sys_prompt": "updated roundup prompt",
         "telegram_operator_sys_prompt": "updated telegram operator prompt",
         "telegram_chat_id": None,
         "previous_messages_limit": 7,
