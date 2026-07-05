@@ -9,7 +9,7 @@ from vid_analyser.agent.analysis.parking_spot import (
     assess_parking_spot,
     boxed_snapshots,
     find_zone,
-    snapshot_agent,
+    parking_spot_agent,
     snapshot_timestamps,
     zone_bounding_box,
 )
@@ -101,7 +101,7 @@ __all__ = [
     "find_zone",
     "make_parking_spot_dataset",
     "parking_spot_evaluators",
-    "snapshot_agent",
+    "parking_spot_agent",
     "snapshot_timestamps",
     "zone_bounding_box",
 ]

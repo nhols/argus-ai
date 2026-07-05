@@ -35,6 +35,13 @@ Use these rules:
 - If snapshots show motion, use their order to distinguish entering from leaving.
 """
 
+parking_spot_agent = Agent[None, ParkingSpotAssessment](
+    model=create_google_retry_model(DEFAULT_GOOGLE_MODEL),
+    name="parking_spot_agent",
+    output_type=ParkingSpotAssessment,
+    instructions=PROMPT,
+)
+
 
 def find_zone(
     zones: list[ZoneDefinition], label: str = DEFAULT_ZONE_LABEL
@@ -115,16 +122,6 @@ def boxed_snapshots(
         yield paths
 
 
-def snapshot_agent(
-    model_name: str = DEFAULT_GOOGLE_MODEL,
-) -> Agent[None, ParkingSpotAssessment]:
-    return Agent[None, ParkingSpotAssessment](
-        model=create_google_retry_model(model_name),
-        output_type=ParkingSpotAssessment,
-        instructions=PROMPT,
-    )
-
-
 async def assess_parking_spot(
     video_path: Path,
     zone: ZoneDefinition,
@@ -148,5 +145,11 @@ async def assess_parking_spot(
                     ),
                 ]
             )
-        result = await snapshot_agent(model_name).run(prompt)
+        if model_name == DEFAULT_GOOGLE_MODEL:
+            result = await parking_spot_agent.run(prompt)
+        else:
+            result = await parking_spot_agent.run(
+                prompt,
+                model=create_google_retry_model(model_name),
+            )
         return result.output

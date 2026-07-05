@@ -30,6 +30,12 @@ def test_parking_prompt_forbids_colour_claims_in_ir_mode():
     assert "If the images use IR/night vision, do not comment" in PROMPT
 
 
+def test_parking_agent_has_explicit_logfire_name():
+    import vid_analyser.agent.analysis.parking_spot as snapshots_module
+
+    assert snapshots_module.parking_spot_agent.name == "parking_spot_agent"
+
+
 def test_snapshot_timestamps_cover_video_in_order_without_exact_boundaries():
     timestamps = snapshot_timestamps(10.0, 5)
 
@@ -109,7 +115,7 @@ def test_assess_parking_spot_sends_ordered_identified_snapshots(tmp_path, monkey
 
     agent = StubAgent()
     monkeypatch.setattr(snapshots_module, "boxed_snapshots", fake_boxed_snapshots)
-    monkeypatch.setattr(snapshots_module, "snapshot_agent", lambda _model: agent)
+    monkeypatch.setattr(snapshots_module, "parking_spot_agent", agent)
     zone = ZoneDefinition(label="spot", polygon=[(0, 0), (1, 0), (1, 1)])
 
     result = asyncio.run(assess_parking_spot(tmp_path / "clip.mp4", zone, count=2))
