@@ -94,7 +94,7 @@ async def analyse_scene(
             video_start_time=video_start_time,
         ),
         model_settings=GoogleModelSettings(
-            google_video_resolution=MediaResolution.MEDIA_RESOLUTION_HIGH
+            google_video_resolution=MediaResolution.MEDIA_RESOLUTION_MEDIUM
         ),
     )
     return result.output
