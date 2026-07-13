@@ -1,4 +1,5 @@
 import json
+import math
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,16 @@ class VideoInfo:
     duration: float
 
 
+def _positive_float(value: object) -> float | None:
+    if not isinstance(value, (str, int, float)):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
 def probe_video(path: Path) -> VideoInfo:
     result = subprocess.run(
         [
@@ -20,7 +31,7 @@ def probe_video(path: Path) -> VideoInfo:
             "-select_streams",
             "v:0",
             "-show_entries",
-            "stream=width,height:format=duration",
+            "stream=width,height,duration:format=duration",
             "-of",
             "json",
             str(path),
@@ -31,10 +42,15 @@ def probe_video(path: Path) -> VideoInfo:
     )
     payload = json.loads(result.stdout)
     stream = payload["streams"][0]
+    duration = _positive_float(stream.get("duration"))
+    if duration is None:
+        duration = _positive_float(payload.get("format", {}).get("duration"))
+    if duration is None:
+        raise ValueError(f"Could not determine video duration for {path}")
     return VideoInfo(
         width=int(stream["width"]),
         height=int(stream["height"]),
-        duration=float(payload["format"]["duration"]),
+        duration=duration,
     )
 
 
