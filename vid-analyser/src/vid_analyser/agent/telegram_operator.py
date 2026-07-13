@@ -9,6 +9,7 @@ from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from vid_analyser.agent.memory import GLOBAL_AGENT_MEMORY_NAME, build_memory_instructions
 from vid_analyser.agent.models import DEFAULT_GOOGLE_MODEL
+from vid_analyser.agent.notes import build_live_note_instructions
 from vid_analyser.agent.retry import create_google_retry_model
 from vid_analyser.api.runtime import get_app_state, require_active_run_config, set_active_config_state
 from vid_analyser.config_schema import RunConfig
@@ -27,6 +28,7 @@ You can:
 - inspect sent notification history
 - snooze video analysis so incoming videos are discarded without analysis for a limited time
 - cancel the active video analysis snooze
+- add an expiring note that will be supplied to this agent and the notifier agent while it is live
 - update the global agent memory scratchpad when useful (use this to store key facts that might come in useful at a later date)
 - update only notifier_style when the user clearly asks
 - send a plain text response back to the Telegram chat
@@ -39,6 +41,7 @@ Response style guidance:
 
 Rules:
 - base answers on tool results and provided context; do not invent system state
+- use an expiring note, rather than memory, when the user asks to attach context for a bounded period
 - agent memory is a scratchpad, not ground truth; keep it concise and useful
 - every turn must end with exactly one response sent back to the Telegram chat
 """
@@ -47,6 +50,7 @@ MEMORY_CHAR_LIMIT = 200
 DEFAULT_TRANSCRIPT_LIMIT = 20
 SNOOZE_REASON_CHAR_LIMIT = 200
 MAX_SNOOZE_MINUTES = 24 * 60
+NOTE_CHAR_LIMIT = 1000
 
 
 @dataclass
@@ -183,6 +187,11 @@ async def inject_memory_context(ctx: RunContext[Deps]) -> str | None:
     )
 
 
+@telegram_operator_agent.instructions
+async def inject_live_note_context(ctx: RunContext[Deps]) -> str | None:
+    return await build_live_note_instructions(db=ctx.deps.db)
+
+
 @telegram_operator_agent.tool
 async def query_vid_analysis_results(
     ctx: RunContext[Deps],
@@ -265,6 +274,36 @@ async def cancel_vid_analyser_snooze(ctx: RunContext[Deps]) -> dict[str, object]
     """Cancel all active video analysis snoozes."""
     cancelled_count = await ctx.deps.db.cancel_active_vid_analyser_snoozes(cancelled_by=_current_sender_label(ctx))
     return {"cancelled_count": cancelled_count}
+
+
+@telegram_operator_agent.tool(
+    description=(
+        "Add a temporary note that is loaded as important context for the Telegram operator and notifier agents "
+        f"until expires_at. Keep note_text under {NOTE_CHAR_LIMIT} characters. "
+        "expires_at must be a future ISO 8601 timestamp with a timezone."
+    )
+)
+async def add_operator_note(
+    ctx: RunContext[Deps],
+    note_text: str,
+    expires_at: datetime,
+) -> dict[str, object]:
+    normalized = note_text.strip()
+    if not normalized:
+        raise ModelRetry("note_text must not be empty")
+    if len(normalized) > NOTE_CHAR_LIMIT:
+        raise ModelRetry(f"note_text exceeds {NOTE_CHAR_LIMIT} characters")
+    if expires_at.tzinfo is None or expires_at.utcoffset() is None:
+        raise ModelRetry("expires_at must include a timezone")
+    normalized_expiry = expires_at.astimezone(UTC)
+    if normalized_expiry <= datetime.now(UTC):
+        raise ModelRetry("expires_at must be in the future")
+    record = await ctx.deps.db.insert_operator_note(
+        note_text=normalized,
+        expires_at=normalized_expiry,
+        created_by=_current_sender_label(ctx),
+    )
+    return {"created": True, "note": _serialize_record(record)}
 
 
 @telegram_operator_agent.tool(

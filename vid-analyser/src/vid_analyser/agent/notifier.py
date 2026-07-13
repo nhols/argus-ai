@@ -7,6 +7,7 @@ from pydantic import BaseModel, NonNegativeInt
 from pydantic_ai import Agent, RunContext
 from vid_analyser.agent.memory import build_memory_instructions
 from vid_analyser.agent.models import DEFAULT_GOOGLE_MODEL
+from vid_analyser.agent.notes import build_live_note_instructions
 from vid_analyser.agent.retry import create_google_retry_model
 from vid_analyser.agent.utils import get_timestamps
 from vid_analyser.bookings import format_bookings_prompt, load_bookings_json
@@ -101,6 +102,11 @@ async def get_agent_memory(ctx: RunContext[Deps]) -> str | None:
         limit=ctx.deps.agent_memory_limit,
         decay_days=ctx.deps.agent_memory_decay_days,
     )
+
+
+@notifier_agent.instructions
+async def get_live_operator_notes(ctx: RunContext[Deps]) -> str | None:
+    return await build_live_note_instructions(db=ctx.deps.db)
 
 
 @notifier_agent.instructions
