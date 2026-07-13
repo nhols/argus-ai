@@ -97,3 +97,15 @@ class AgentMemoryRecord(Base):
     weight: Mapped[float] = mapped_column(nullable=False, default=1.0)
     is_core: Mapped[bool] = mapped_column(nullable=False, default=False)
     memory_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class OperatorNoteRecord(Base):
+    __tablename__ = "operator_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        AwareDateTime(), nullable=False, index=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    note_text: Mapped[str] = mapped_column(Text, nullable=False)

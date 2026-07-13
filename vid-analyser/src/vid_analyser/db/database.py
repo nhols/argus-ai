@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from vid_analyser.db.models import (
     AgentMemoryRecord,
     ConfigUpdateRecord,
+    OperatorNoteRecord,
     SentNotificationRecord,
     TelegramChatMessageRecord,
     VidAnalysisRecord,
@@ -309,3 +310,37 @@ class Database:
             return record.weight * math.exp(-decay_constant * age_days)
 
         return sorted(records, key=rank, reverse=True)[:limit]
+
+    async def insert_operator_note(
+        self,
+        *,
+        note_text: str,
+        expires_at: datetime,
+        created_by: str | None = None,
+    ) -> OperatorNoteRecord:
+        record = OperatorNoteRecord(
+            created_at=utc_now_iso(),
+            expires_at=expires_at,
+            created_by=created_by,
+            note_text=note_text,
+        )
+        async with self._session_factory() as session:
+            session.add(record)
+            await session.commit()
+            await session.refresh(record)
+        return record
+
+    async def get_active_operator_notes(
+        self,
+        *,
+        now: datetime | None = None,
+    ) -> list[OperatorNoteRecord]:
+        current_time = now or datetime.now(UTC)
+        stmt = (
+            select(OperatorNoteRecord)
+            .where(OperatorNoteRecord.expires_at > current_time)
+            .order_by(OperatorNoteRecord.expires_at.asc(), OperatorNoteRecord.id.asc())
+        )
+        async with self._session_factory() as session:
+            result = await session.execute(stmt)
+            return list(result.scalars())
