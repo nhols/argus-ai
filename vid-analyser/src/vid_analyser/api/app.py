@@ -12,6 +12,7 @@ from vid_analyser.api.routes import app_api_router, internal_router, webhook_rou
 from vid_analyser.api.runtime import initialize_app_state
 from vid_analyser.api.ui import router as ui_router
 from vid_analyser.genai_prices import start_price_updates, stop_price_updates
+from vid_analyser.parking_feed import run_parking_feed_schedule
 from vid_analyser.schedule import run_weekly_schedule
 
 load_dotenv()
@@ -51,12 +52,20 @@ async def lifespan(app: FastAPI):
         run_weekly_schedule(roundup_job, job_name="weekly roundup"),
         name="weekly-roundup",
     )
+
+    parking_feed_task = asyncio.create_task(
+        run_parking_feed_schedule(app),
+        name="parking-feed-publish",
+    )
     try:
         yield
     finally:
-        roundup_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await roundup_task
+        tasks = (roundup_task, parking_feed_task)
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                await task
         stop_price_updates()
 
 

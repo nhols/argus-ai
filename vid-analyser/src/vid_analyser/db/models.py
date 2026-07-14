@@ -55,6 +55,7 @@ class VidAnalysisRecord(Base):
     clip_end_time: Mapped[datetime | None] = mapped_column(AwareDateTime(), nullable=True)
     video_path: Mapped[str] = mapped_column(String, nullable=False)
     result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    parking_feed_pushed_at: Mapped[str | None] = mapped_column(String, nullable=True)
     logfire_trace_id: Mapped[str | None] = mapped_column(String, nullable=True)
     logfire_span_id: Mapped[str | None] = mapped_column(String, nullable=True)
 

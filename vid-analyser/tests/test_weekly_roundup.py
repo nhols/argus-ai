@@ -9,7 +9,7 @@ from vid_analyser.agent.weekly_roundup import (
     _format_local_datetime,
     get_roundup_instructions,
 )
-from vid_analyser.schedule import next_weekly_run
+from vid_analyser.schedule import next_hourly_run, next_weekly_run
 
 
 LONDON = ZoneInfo("Europe/London")
@@ -39,6 +39,15 @@ def test_next_roundup_time(now: datetime, expected: datetime) -> None:
 def test_next_roundup_time_requires_aware_datetime() -> None:
     with pytest.raises(ValueError, match="timezone-aware"):
         next_weekly_run(datetime(2026, 7, 5, 12, 0))
+
+
+def test_next_hourly_run_is_strictly_after_now() -> None:
+    assert next_hourly_run(datetime(2026, 7, 5, 12, 0, tzinfo=UTC)) == datetime(
+        2026, 7, 5, 13, 0, tzinfo=UTC
+    )
+    assert next_hourly_run(datetime(2026, 7, 5, 12, 59, tzinfo=UTC)) == datetime(
+        2026, 7, 5, 13, 0, tzinfo=UTC
+    )
 
 
 def test_roundup_system_prompt_can_override_default() -> None:

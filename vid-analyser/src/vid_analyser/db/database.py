@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vid_analyser.db.models import (
@@ -136,6 +136,41 @@ class Database:
         async with self._session_factory() as session:
             result = await session.execute(stmt)
             return list(result.scalars())
+
+    async def query_unpushed_parking_feed_analyses(
+        self,
+        *,
+        created_from: str,
+    ) -> list[VidAnalysisRecord]:
+        stmt = (
+            select(VidAnalysisRecord)
+            .where(
+                VidAnalysisRecord.created_at >= created_from,
+                VidAnalysisRecord.clip_start_time.is_not(None),
+                VidAnalysisRecord.parking_feed_pushed_at.is_(None),
+            )
+            .order_by(VidAnalysisRecord.id.asc())
+        )
+        async with self._session_factory() as session:
+            result = await session.execute(stmt)
+            return list(result.scalars())
+
+    async def mark_parking_feed_analyses_pushed(
+        self,
+        ids: list[int],
+        *,
+        pushed_at: str | None = None,
+    ) -> None:
+        if not ids:
+            return
+        stmt = (
+            update(VidAnalysisRecord)
+            .where(VidAnalysisRecord.id.in_(ids))
+            .values(parking_feed_pushed_at=pushed_at or utc_now_iso())
+        )
+        async with self._session_factory() as session:
+            await session.execute(stmt)
+            await session.commit()
 
     async def insert_vid_analyser_snooze(
         self,

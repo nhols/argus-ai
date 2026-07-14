@@ -162,6 +162,12 @@ Use the repo-root `.env.example` as the canonical template for the Docker Compos
 | `VID_ANALYSER_VIDEO_S3_BUCKET` | Required when `VID_ANALYSER_STORAGE_PROVIDER=s3`; names the bucket used for retained analysed videos. | `vid-analyser/src/vid_analyser/storage/__init__.py`, `vid-analyser/src/vid_analyser/storage/s3.py` |
 | `BOOKINGS_S3_BUCKET` | Required when persisted config enables `get_bookings`; names the S3 bucket containing the bookings JSON document used by notifier context. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/bookings.py` |
 | `BOOKINGS_S3_KEY` | Required when persisted config enables `get_bookings`; key for the bookings JSON document in `BOOKINGS_S3_BUCKET`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/bookings.py` |
+| `PARKING_FEED_R2_ENDPOINT_URL` | Cloudflare R2 S3 API endpoint used by the hourly parking feed publisher. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/parking_feed.py` |
+| `PARKING_FEED_R2_ACCESS_KEY_ID` | Bucket-scoped R2 S3 access key for the parking feed publisher. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/parking_feed.py` |
+| `PARKING_FEED_R2_SECRET_ACCESS_KEY` | Secret for `PARKING_FEED_R2_ACCESS_KEY_ID`. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/parking_feed.py` |
+| `PARKING_FEED_R2_BUCKET` | R2 bucket receiving monthly parking observation objects. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/parking_feed.py` |
+| `PARKING_FEED_R2_PREFIX` | Object key prefix for monthly parking observations. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/parking_feed.py` |
+| `PARKING_FEED_TIMEZONE` | IANA timezone used to interpret clip wall-clock timestamps and choose monthly object keys. | `.env.example`, `docker-compose.yml`, `vid-analyser/src/vid_analyser/parking_feed.py` |
 | `LOCAL_STORE_DIR` | Local eval-data root used by the Streamlit eval tools, not by the production API path. | `vid-analyser/.env`, `vid-analyser/src/vid_analyser/evals/ui/labeler/app.py`, `vid-analyser/src/vid_analyser/evals/ui/results/app.py` |
 
 ## Terraform And DigitalOcean

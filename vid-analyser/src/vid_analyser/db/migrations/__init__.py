@@ -6,6 +6,9 @@ from vid_analyser.db.migrations.m003_agent_memories import apply as apply_m003_a
 from vid_analyser.db.migrations.m004_agent_memory_weights import apply as apply_m004_agent_memory_weights
 from vid_analyser.db.migrations.m005_vid_analyser_snoozes import apply as apply_m005_vid_analyser_snoozes
 from vid_analyser.db.migrations.m006_operator_notes import apply as apply_m006_operator_notes
+from vid_analyser.db.migrations.m007_parking_feed_pushed_at import (
+    apply as apply_m007_parking_feed_pushed_at,
+)
 
 
 def run_migrations(conn: Connection) -> None:
@@ -15,3 +18,4 @@ def run_migrations(conn: Connection) -> None:
     apply_m004_agent_memory_weights(conn)
     apply_m005_vid_analyser_snoozes(conn)
     apply_m006_operator_notes(conn)
+    apply_m007_parking_feed_pushed_at(conn)

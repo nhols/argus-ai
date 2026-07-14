@@ -11,6 +11,14 @@ DEFAULT_WEEKDAY = 6  # Monday is 0, Sunday is 6.
 DEFAULT_TIME = time(hour=22)
 
 
+def next_hourly_run(now: datetime) -> datetime:
+    """Return the next whole UTC hour, strictly after ``now``."""
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    utc_now = now.astimezone(UTC)
+    return utc_now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+
 def next_weekly_run(
     now: datetime,
     *,
@@ -42,13 +50,34 @@ async def run_weekly_schedule(
     timezone: ZoneInfo = DEFAULT_TIMEZONE,
 ) -> None:
     """Run an async job on a weekly schedule while the process is alive."""
-    while True:
-        scheduled_for = next_weekly_run(
-            datetime.now(UTC),
+    def get_next_run(now: datetime) -> datetime:
+        return next_weekly_run(
+            now,
             weekday=weekday,
             at=at,
             timezone=timezone,
         )
+
+    await _run_schedule(job, job_name=job_name, get_next_run=get_next_run)
+
+
+async def run_hourly_schedule(
+    job: Callable[[datetime], Awaitable[object]],
+    *,
+    job_name: str,
+) -> None:
+    """Run an async job at the start of every UTC hour."""
+    await _run_schedule(job, job_name=job_name, get_next_run=next_hourly_run)
+
+
+async def _run_schedule(
+    job: Callable[[datetime], Awaitable[object]],
+    *,
+    job_name: str,
+    get_next_run: Callable[[datetime], datetime],
+) -> None:
+    while True:
+        scheduled_for = get_next_run(datetime.now(UTC))
         delay = max(0.0, (scheduled_for - datetime.now(UTC)).total_seconds())
         logger.info("Next %s scheduled for %s", job_name, scheduled_for.isoformat())
         await asyncio.sleep(delay)
