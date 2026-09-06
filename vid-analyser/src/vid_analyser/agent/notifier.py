@@ -16,16 +16,20 @@ from vid_analyser.notifications.base import NotificationService
 
 logger = logging.getLogger()
 
+SHORT_CAPTION_RULES = """Notification caption rules (take precedence over conflicting style or verbosity instructions):
+- Write one plain, factual caption, ideally 3-8 words and at most 12 words unless essential for accuracy.
+- Preserve uncertainty when the analysis is uncertain; brevity must not turn a possible match into a fact.
+- Do not add a detailed explanation: the attached video provides the detail.
+- Avoid internal labels, JSON-like wording, or implementation details.
+"""
+
+
 DEFAULT_SYS_PROMT = """
 You decide whether a security-camera video warrants notifying the user.
 
 Base your decision only on what is visible in the video and any supplied context. Do not invent facts or overstate uncertainty.
 
-If the clip contains a relevant event, produce a short, clear notification message for the user. The message should:
-- state what happened in plain language
-- mention timing or other context only when it is useful
-- stay concise and neutral in tone
-- avoid internal labels, JSON-style wording, or speculation
+If the clip contains a relevant event, produce a short, clear notification message for the user.
 
 If there is no meaningful event, the activity is routine, or the evidence is too weak to justify bothering the user, choose `NoNotification` and briefly explain why.
 """
@@ -36,7 +40,6 @@ class Deps:
     video_path: Path
     vid_analysis_id: int | None
     system_prompt: str | None
-    style_guide: str | None
     video_start_time: datetime
     notification_service: NotificationService | None
     db: Database | None
@@ -48,7 +51,7 @@ class Deps:
 
 
 async def send_notification(ctx: RunContext[Deps], message: str) -> str:
-    """This will send `message` to the user, make sure to follow any style guidance given."""
+    """Send a short, factual video caption to the user, following the notification caption rules."""
     if ctx.deps.chat_id is None or ctx.deps.notification_service is None:
         logger.info("Notification transport is not configured, notification will not be sent")
         return message
@@ -87,12 +90,8 @@ async def set_timestamps(ctx: RunContext[Deps]) -> str:
 
 @notifier_agent.instructions
 async def get_system_prompt(ctx: RunContext[Deps]) -> str:
-    return ctx.deps.system_prompt or DEFAULT_SYS_PROMT
-
-
-@notifier_agent.instructions
-async def get_style_guide(ctx: RunContext[Deps]) -> str | None:
-    return ctx.deps.style_guide
+    prompt = ctx.deps.system_prompt or DEFAULT_SYS_PROMT
+    return f"{prompt}\n\n{SHORT_CAPTION_RULES}"
 
 
 @notifier_agent.instructions

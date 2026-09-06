@@ -88,7 +88,6 @@ async def run(
                 if analysis_record is not None
                 else None,
                 system_prompt=config.notifier_sys_prompt,
-                style_guide=config.notifier_style,
                 video_start_time=video_start_time,
                 notification_service=TelegramNotificationService()
                 if config.telegram_chat_id
