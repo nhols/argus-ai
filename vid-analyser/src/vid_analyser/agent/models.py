@@ -3,9 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 DEFAULT_GOOGLE_MODEL = "gemini-3.1-flash-lite"
-ParkingSpotStatus = Literal[
-    "occupied", "vacant", "car entering", "car leaving", "unknown"
-]
+ParkingSpotStatus = Literal["occupied", "vacant", "car entering", "car leaving", "unknown"]
 
 
 class ParkingSpotAssessment(BaseModel):
