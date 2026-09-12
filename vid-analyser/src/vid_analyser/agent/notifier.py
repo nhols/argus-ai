@@ -16,14 +16,6 @@ from vid_analyser.notifications.base import NotificationService
 
 logger = logging.getLogger()
 
-SHORT_CAPTION_RULES = """Notification caption rules (take precedence over conflicting style or verbosity instructions):
-- Write one plain, factual caption, ideally 3-8 words and at most 12 words unless essential for accuracy.
-- Preserve uncertainty when the analysis is uncertain; brevity must not turn a possible match into a fact.
-- Do not add a detailed explanation: the attached video provides the detail.
-- Avoid internal labels, JSON-like wording, or implementation details.
-"""
-
-
 DEFAULT_SYS_PROMT = """
 You decide whether a security-camera video warrants notifying the user.
 
@@ -91,7 +83,7 @@ async def set_timestamps(ctx: RunContext[Deps]) -> str:
 @notifier_agent.instructions
 async def get_system_prompt(ctx: RunContext[Deps]) -> str:
     prompt = ctx.deps.system_prompt or DEFAULT_SYS_PROMT
-    return f"{prompt}\n\n{SHORT_CAPTION_RULES}"
+    return f"{prompt}"
 
 
 @notifier_agent.instructions
