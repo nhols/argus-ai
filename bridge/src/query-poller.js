@@ -83,11 +83,15 @@ export class QueryPoller {
     timeZone = EUFY_TIME_ZONE,
     pollDelays = RECORDING_AVAILABILITY_POLL_DELAYS,
     now = () => new Date(),
+    onTimeout = () => {},
+    responseTimeoutMs = QUERY_RESPONSE_TIMEOUT_MS,
   } = {}) {
     this.wsSend = wsSend;
     this.timeZone = timeZone;
     this.pollDelays = pollDelays;
     this.now = now;
+    this.onTimeout = onTimeout;
+    this.responseTimeoutMs = responseTimeoutMs;
     /** @type {((data: any[]) => void) | null} */
     this.pendingResolve = null;
     this.pendingTimeout = null;
@@ -208,9 +212,10 @@ export class QueryPoller {
           log('⚠️ Query response timeout');
           this.pendingResolve = null;
           this.pendingTimeout = null;
+          this.onTimeout();
           resolve([]);
         }
-      }, QUERY_RESPONSE_TIMEOUT_MS);
+      }, this.responseTimeoutMs);
     });
   }
 

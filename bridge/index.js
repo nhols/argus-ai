@@ -17,6 +17,7 @@ import { EUFY_WS_URL } from './src/config.js';
 import { log } from './src/logger.js';
 import { WsClient } from './src/ws-client.js';
 import { QueryPoller } from './src/query-poller.js';
+import { StationWatchdog } from './src/station-watchdog.js';
 import { DownloadManager } from './src/download-manager.js';
 import { CaptchaServer } from './src/captcha-server.js';
 import { createMessageHandler } from './src/event-handlers.js';
@@ -27,13 +28,15 @@ const sentEvents = new Set();
 // Initialise components
 const ws = new WsClient(EUFY_WS_URL);
 const send = (cmd, params) => ws.send(cmd, params);
-const queryPoller = new QueryPoller(send);
+const stationWatchdog = new StationWatchdog(send);
+const queryPoller = new QueryPoller(send, { onTimeout: () => stationWatchdog.onQueryTimeout() });
 const downloadManager = new DownloadManager(send);
 const captchaServer = new CaptchaServer(send);
 captchaServer.start();
 
 const { handleOpen, handleMessage } = createMessageHandler({
   queryPoller,
+  stationWatchdog,
   downloadManager,
   captchaServer,
   sentEvents,

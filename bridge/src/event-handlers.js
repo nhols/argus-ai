@@ -21,11 +21,12 @@ const RECORDING_EDGE_EVENTS = new Set([
  *
  * @param {object}          deps
  * @param {import('./query-poller.js').QueryPoller}       deps.queryPoller
+ * @param {import('./station-watchdog.js').StationWatchdog} [deps.stationWatchdog]
  * @param {import('./download-manager.js').DownloadManager} deps.downloadManager
  * @param {import('./captcha-server.js').CaptchaServer}   deps.captchaServer
  * @param {Set<string>}     deps.sentEvents   – storage_paths already sent upstream
  */
-export function createMessageHandler({ queryPoller, downloadManager, captchaServer, sentEvents }) {
+export function createMessageHandler({ queryPoller, stationWatchdog, downloadManager, captchaServer, sentEvents }) {
   let activeWsClient = null;
   let connectTimeout = null;
   let doorbellReady = false;
@@ -251,6 +252,7 @@ export function createMessageHandler({ queryPoller, downloadManager, captchaServ
 
     // Always forward to the poller (no-op if it isn't waiting)
     queryPoller.onQueryResult(data);
+    stationWatchdog?.onQueryResult();
 
     if (!doorbellReady) {
       if (awaitingInitialQuery) {
