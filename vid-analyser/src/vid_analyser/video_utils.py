@@ -22,24 +22,33 @@ def _positive_float(value: object) -> float | None:
     return number if math.isfinite(number) and number > 0 else None
 
 
+FFMPEG_TIMEOUT_SECONDS = 30
+
+
 def probe_video(path: Path) -> VideoInfo:
-    result = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height,duration:format=duration",
-            "-of",
-            "json",
-            str(path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,duration:format=duration",
+                "-of",
+                "json",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=FFMPEG_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"ffprobe timed out after {FFMPEG_TIMEOUT_SECONDS}s probing {path}"
+        ) from exc
     payload = json.loads(result.stdout)
     stream = payload["streams"][0]
     duration = _positive_float(stream.get("duration"))
@@ -55,11 +64,17 @@ def probe_video(path: Path) -> VideoInfo:
 
 
 def _run_ffmpeg(args: list[str], error_message: str) -> None:
-    result = subprocess.run(
-        ["ffmpeg", "-loglevel", "error", "-y", *args],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-loglevel", "error", "-y", *args],
+            capture_output=True,
+            text=True,
+            timeout=FFMPEG_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"ffmpeg timed out after {FFMPEG_TIMEOUT_SECONDS}s: {error_message}"
+        ) from exc
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or error_message)
 
