@@ -15,6 +15,7 @@ export const WATCHDOG_TIMEOUT_THRESHOLD = 3;
 export const WATCHDOG_COOLDOWN_MS = 5 * 60_000;
 export const WATCHDOG_RECONNECT_DELAY_MS = 5_000;
 export const WATCHDOG_STATION_ATTEMPTS = 2;
+export const DOWNLOAD_TIMEOUT_MS = 3 * 60_000;
 export const EUFY_TIME_ZONE = process.env.EUFY_TIME_ZONE ?? 'Europe/London';
 
 if (!HOMEBASE_SN) throw new Error('Missing HOMEBASE_SN');

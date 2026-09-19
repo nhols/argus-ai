@@ -49,6 +49,8 @@ export function createMessageHandler({ queryPoller, stationWatchdog, downloadMan
     clearCloudRefreshRetry();
     clearReconciliationTimer();
     cloudRefreshRetryDelayMs = 5_000;
+    // Any download stream died with the old connection.
+    downloadManager.abortCurrent('eufy-ws connection was reset', { requeue: true });
 
     log('Connected — setting up API schema and driver…');
     wsClient.send('set_api_schema', { schemaVersion: 21 });
@@ -130,6 +132,7 @@ export function createMessageHandler({ queryPoller, stationWatchdog, downloadMan
       clearCloudRefreshRetry();
       cloudRefreshRetryDelayMs = 5_000;
       startReconciliationTimer();
+      downloadManager.resume();
       if (!initialQueryFired) {
         initialQueryFired = true;
         awaitingInitialQuery = true;

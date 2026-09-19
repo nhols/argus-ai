@@ -10,7 +10,10 @@ import {
   VID_ANALYSER_API_URL,
   VID_ANALYSER_API_KEY,
   HOMEBASE_SN,
+  DOWNLOAD_TIMEOUT_MS,
 } from './config.js';
+
+const MAX_DOWNLOAD_RETRIES = 1;
 
 function closeWriteStream(stream) {
   return new Promise((resolve, reject) => {
@@ -46,8 +49,15 @@ function deleteIfExists(filePath) {
  *     → onDownloadFinished()           (mux with ffmpeg, POST to API, next)
  */
 export class DownloadManager {
-  constructor(wsSend) {
+  constructor(wsSend, {
+    timeoutMs = DOWNLOAD_TIMEOUT_MS,
+    setTimer = setTimeout,
+    clearTimer = clearTimeout,
+  } = {}) {
     this.wsSend = wsSend;
+    this.timeoutMs = timeoutMs;
+    this.setTimer = setTimer;
+    this.clearTimer = clearTimer;
 
     /** @type {{ device_sn: string, storage_path: string, cipher_id?: number }[]} */
     this.queue = [];
@@ -55,6 +65,7 @@ export class DownloadManager {
 
     /** Info about the download currently in flight. */
     this.currentDownload = null;
+    this.deadlineTimer = null;
 
     /**
      * Per-device download state.
@@ -67,10 +78,63 @@ export class DownloadManager {
   /** Push one or more DB event rows onto the download queue. */
   enqueue(events) {
     for (const evt of events) {
+      if (this.isPending(evt.storage_path)) continue;
       log(`📋 Queued download: ${evt.storage_path}`);
       this.queue.push(evt);
     }
     this.processQueue();
+  }
+
+  /** @private */
+  isPending(storagePath) {
+    return this.currentDownload?.storagePath === storagePath
+      || this.queue.some((evt) => evt.storage_path === storagePath);
+  }
+
+  /** Continue with the next queued download once eufy-ws is ready again. */
+  resume() {
+    this.processQueue();
+  }
+
+  /**
+   * Drop the in-flight download. Used when the eufy-ws connection is lost
+   * (its download stream dies with it) or when a download stalls.
+   */
+  abortCurrent(reason, { requeue = false } = {}) {
+    if (!this.isDownloading) return;
+
+    const { serialNumber, storagePath, event } = this.currentDownload;
+    log(`⚠️  Aborting download of ${storagePath}: ${reason}`);
+    this.clearDeadline();
+
+    const dl = this.activeDownloads.get(serialNumber);
+    if (dl) {
+      // The file may not be open yet, so delete once the stream has closed.
+      dl.videoStream.once('close', () => deleteIfExists(dl.videoRawPath));
+      dl.audioStream.once('close', () => deleteIfExists(dl.audioRawPath));
+      dl.videoStream.destroy();
+      dl.audioStream.destroy();
+      this.activeDownloads.delete(serialNumber);
+    }
+
+    const retries = event.retries ?? 0;
+    if (requeue && retries < MAX_DOWNLOAD_RETRIES) {
+      log(`🔁 Will retry download of ${storagePath}`);
+      this.queue.unshift({ ...event, retries: retries + 1 });
+    } else if (requeue) {
+      log(`❌ Giving up on ${storagePath} after ${retries} retry attempt(s)`);
+    }
+
+    this.isDownloading = false;
+    this.currentDownload = null;
+  }
+
+  /** @private */
+  clearDeadline() {
+    if (this.deadlineTimer) {
+      this.clearTimer(this.deadlineTimer);
+      this.deadlineTimer = null;
+    }
   }
 
   /** @private Start the next queued download if nothing is in flight. */
@@ -82,6 +146,7 @@ export class DownloadManager {
 
     const basename = evt.storage_path.split('/').pop().replace('.zxvideo', '');
     this.currentDownload = {
+      event: evt,
       serialNumber: evt.device_sn,
       storagePath: evt.storage_path,
       cipherId: evt.cipher_id,
@@ -111,6 +176,12 @@ export class DownloadManager {
       path: evt.storage_path,
       cipherId: evt.cipher_id,
     });
+
+    this.deadlineTimer = this.setTimer(() => {
+      this.deadlineTimer = null;
+      this.abortCurrent(`no download finished within ${this.timeoutMs / 1000}s`, { requeue: true });
+      this.processQueue();
+    }, this.timeoutMs);
   }
 
   // ── chunk collection (called by event handlers) ──────────────────────
@@ -157,10 +228,12 @@ export class DownloadManager {
 
   /** Mux video+audio → mp4 with ffmpeg, POST to the API, then process the next item. */
   async onDownloadFinished(serialNumber) {
+    this.clearDeadline();
     const dl = this.activeDownloads.get(serialNumber);
     if (!dl) {
       log(`⚠️  download finished for unknown device ${serialNumber}`);
       this.isDownloading = false;
+      this.currentDownload = null;
       this.processQueue();
       return;
     }
