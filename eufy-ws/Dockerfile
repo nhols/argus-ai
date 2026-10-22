@@ -51,6 +51,17 @@ RUN apk add --no-cache tini bash jq
 WORKDIR /usr/src/app
 COPY --from=build /build/eufy-security-ws /usr/src/app
 
+# Node 24 refuses to start with the --security-revert=CVE-2023-46809 flag that
+# docker/run.sh adds (Node 20 accepted it). The client's own PKCS#1 code does
+# the same decryption, so drop the flag and turn that on instead. The greps
+# fail the build if run.sh changes and the edits stop applying.
+RUN sed -i \
+      -e 's/WORKAROUND_ISSUE_310="--security-revert=CVE-2023-46809"/WORKAROUND_ISSUE_310=""/' \
+      -e '/persistentDir: /i\      enableEmbeddedPKCS1Support: true,' \
+      docker/run.sh \
+    && ! grep -q 'security-revert=' docker/run.sh \
+    && grep -q 'enableEmbeddedPKCS1Support: true,' docker/run.sh
+
 EXPOSE 3000
 VOLUME /data
 
