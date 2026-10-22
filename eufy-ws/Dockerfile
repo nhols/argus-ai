@@ -13,9 +13,13 @@
 # - eufy-security-client argus-hb3-push-2037 -> 7267a18667bc909a0a20acee6c28b16cc808a2fb
 # - eufy-security-ws     argus-ws-2.1.0      -> 01979d9d833b93bfbc9b88fbdc200745c72d6e52
 
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 
 RUN apk add --no-cache git python3 make g++
+
+# Node 24 ships npm 11, whose `npm ci` rejects the forks' lockfiles (missing
+# optional esbuild/fsevents entries). npm 10 accepts them as before.
+RUN npm install -g npm@10
 
 WORKDIR /build
 
@@ -40,7 +44,7 @@ RUN npm ci \
 
 # ── runtime ──────────────────────────────────────────────────────────
 
-FROM node:20-alpine
+FROM node:24-alpine
 
 RUN apk add --no-cache tini bash jq
 
